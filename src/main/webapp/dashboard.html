@@ -1,0 +1,112 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <title>ADOxx Dashboard</title>
+    
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css"/>
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-theme.min.css"/>
+    <link rel="stylesheet" type="text/css" href="css/gridstack.min.css"/>
+    <link rel="stylesheet" type="text/css" href="css/dc.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-treeview.min.css">
+    
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    
+    <script type="text/javascript" src="js/libs/lodash.min.js"></script>
+    <script type="text/javascript" src="js/libs/jquery-3.2.1.min.js"></script>
+    <script type="text/javascript" src="js/libs/bootstrap-3.3.7.min.js"></script>
+    <script type="text/javascript" src="js/libs/jquery-ui-1.12.1.min.js"></script>
+    <script type="text/javascript" src="js/libs/gridstack-0.3.0.min.js"></script>
+    <script type="text/javascript" src="js/libs/gridstack-0.3.0.all.js"></script>
+    <script type="text/javascript" src="js/libs/bootstrap-treeview-1.2.0.min.js"></script>
+    <!---->
+    <script type="text/javascript" src="js/libs/d3-3.5.17.min.js"></script>
+    <script type="text/javascript" src="js/libs/crossfilter-1.3.14.min.js"></script>
+    <script type="text/javascript" src="js/libs/dc-2.0.2.min.js"></script>
+    
+    <script type="text/javascript" src="js/dashboard.core.js"></script>
+    <script type="text/javascript">
+    $(document).ready(Handlers.onDocumentReady);
+    window.onmessage = Handlers.onMessageReceived;
+    </script>
+
+</head>
+<body class="container-fluid">
+    <br>
+    <div class="panel panel-primary">
+        <div class="panel-heading">
+            
+            <div class="btn-group pull-right">
+                <div class="btn-group" role="group">
+                    <button type="button" title="Add Widget" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <span class="glyphicon glyphicon-plus"></span>
+                        <span class="caret"></span>
+                    </button>
+                    <ul id="widgetList" class="dropdown-menu dropdown-menu-right">
+                        <li class="dropdown-header"><h3>Widgets:</h3></li>
+                        <li><a href="#"><input id="widgetFilterTxt" type="text" class="form-control" placeholder="Filter"></a></li>
+                        <li role="separator" class="divider"></li>
+                    </ul>
+                </div>
+                
+                
+                <div class="btn-group" role="group">
+                    <button type="button" title="Filter" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <span class="glyphicon glyphicon-filter"></span>
+                        <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-right">
+                        <li class="dropdown-header"><h3>KPIs & GOALs Filters:</h3></li>
+                        <li role="separator" class="divider"></li>
+                        <li id="filterByTreeRootLi" class="dropdown-submenu">
+                            <a href="#">Filter by Selection <span class="glyphicon glyphicon-chevron-right"></span></a>
+                            <ul id="filterByTreeModelsUl" class="dropdown-menu">
+                            </ul>
+                        </li>
+                        <li role="separator" class="divider"></li>
+                        <li><a href="#"><p>Filter by Goal Status</p><div class="inline"><input type="checkbox" id="filterGoalSuccessChk" checked>Success <input type="checkbox" id="filterGoalFailureChk" checked>Failure <input type="checkbox" id="filterGoalUnknownChk" checked>Unknown</div></a></li>
+                        <li role="separator" class="divider"></li>
+                        <li><a href="#"><p>Filter by KPI Value</p><div class="inline"><input id="filterKPIGreaterTxt" type="text" class="form-control" placeholder=">"> <input id="filterKPIEqualTxt" type="text" class="form-control" placeholder="="> <input id="filterKPILowerTxt" type="text" class="form-control" placeholder="<"></div></a></li>
+                    </ul>
+                </div>
+                
+                
+                <div id="configDiv" class="btn-group" role="group">
+                    <button type="button" title="Configure Dashboard" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        <span class="glyphicon glyphicon-cog"></span>
+                        <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-right">
+                        <li>
+                            <a href="#">Dashboard Status: 
+                                <span id="dashboardStatusDiv" class=""></span> 
+                                <i class="btn-group" role="group">
+                                    <label id="exportDashboardBtn" class="btn btn-default" title="Export the current dashboard in json"><span class="glyphicon glyphicon-save"></span></label>
+                                    <label id="importDashboardBtn" class="btn btn-default" title="Import a dashboard from a json file"><span class="glyphicon glyphicon-open"></span><input id="dashboardImportFileInput" type="file" accept=".json" style="display: none;"></label>
+                                    <label id="saveDashboardBtn" class="btn btn-default" title="Save the current dashboard internally"><span class="glyphicon glyphicon-floppy-saved"></span></label>
+                                    <label id="unsaveDashboardBtn" class="btn btn-default" title="Remove the saved dashboard"><span class="glyphicon glyphicon-floppy-remove"></span></label>
+                                </i>
+                            </a>
+                        </li>
+                        <li role="separator" class="divider"></li>
+                        <li>
+                            <a href="#">KPI Model Status: 
+                                <span id="modelStatusDiv" class=""></span> 
+                                <i class="btn-group" role="group"> 
+                                    <label class="btn btn-default" title="Update the internal KPI Model from a json file"><span class="glyphicon glyphicon-open"></span><input id="kpiModelFileInput" type="file" accept=".json" style="display: none;"></label>
+                                    <label id="removeModelBtn" class="btn btn-default" title="Remove the internal KPI Model"><span class="glyphicon glyphicon-trash"></span></label>
+                                </i>
+                            </a>
+                        </li>
+                        <li role="separator" class="divider"></li>
+                        <li><a href="#">Auto-update interval (in minutes): <input type="number" id="updMinTxt" value=""></a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <h3 class="panel-title"><span class="glyphicon glyphicon-dashboard"></span> Dashboard</h3>
+        </div>
+        <div id="dashboardDiv" class="panel-body"></div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,17 @@
+PREFIX owl: <http://www.w3.org/2002/07/owl#> 
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> 
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> 
+PREFIX kpi: <http://www.adoxx.org/ontologies/cloudsocket/kpi#> 
+SELECT DISTINCT ?deployed_instance_name ?design_package_name ?design_package_id ?performance_indicator_name ?measure_time ?measure_value 
+WHERE { 
+    ?measure kpi:time ?measure_time. 
+    ?measure kpi:value ?measure_value. 
+    ?measure kpi:measure2kpi ?performance_indicator. 
+    ?measure kpi:measure2instance ?deployed_instance. 
+    ?performance_indicator kpi:usedName ?performance_indicator_name. 
+    ?deployed_instance kpi:usedName ?deployed_instance_name. 
+    ?deployed_instance kpi:instance2package ?design_package. 
+    ?design_package kpi:usedName ?design_package_name. 
+    ?design_package kpi:ID ?design_package_id. 
+    ?performance_indicator kpi:kpi2package ?design_package. 
+} ORDER BY desc(?measure_time)

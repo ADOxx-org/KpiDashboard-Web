@@ -1,0 +1,104 @@
+{
+    "modelList" : [
+        {
+            "id" : "model_id_1",
+            "name" : "model 1",
+            "description" : "desc",
+            "kpiList" : [
+                {
+                    "id" : "kpi_id_1",
+                    "name" : "kpi 1",
+                    "description" : "desc1",
+                    
+                    "fields" : [{
+                            "name" : "value",
+                            "measureUnit" : "s"
+                        },{
+                            "name" : "instantTime",
+                            "measureUnit" : ""
+                        },{
+                            "name" : "field3",
+                            "measureUnit" : ""
+                        },{
+                            "name" : "field4",
+                            "measureUnit" : ""
+                        }],
+                    "connectedAlgorithmId" : "alg_id_1",
+                    "connectedDataSourceId" : "",
+                    "requiredKpiIdList" : ["kpi_id_2"]
+                },{
+                    "id" : "kpi_id_2",
+                    "name" : "kpi 2",
+                    "description" : "desc2",
+                    "fields" : [{
+                            "name" : "value",
+                            "measureUnit" : ""
+                        },{
+                            "name" : "instantTime",
+                            "measureUnit" : ""
+                        },{
+                            "name" : "field3",
+                            "measureUnit" : ""
+                        }],
+                    "connectedAlgorithmId" : "",
+                    "connectedDataSourceId" : "ds_id_1",
+                    "requiredKpiIdList" : []
+                }
+            ],
+            "goalList" : [
+                {
+                    "id" : "goal_id_1",
+                    "name" : "goal 1",
+                    "description" : "desc1",
+                    "connectedAlgorithmId" : "alg_id_2",
+                    "requiredKpiIdList" : ["kpi_id_2"],
+                    "requiredGoalIdList" : ["goal_id_2"]
+                },{
+                    "id" : "goal_id_2",
+                    "name" : "goal 2",
+                    "description" : "desc1",
+                    "connectedAlgorithmId" : "alg_id_3",
+                    "requiredKpiIdList" : ["kpi_id_1"],
+                    "requiredGoalIdList" : []
+                }
+            ],
+            "dataSourceList" : [
+                {
+                    "id" : "ds_id_1",
+                    "name" : "ds 1",
+                    "moduleName" : "json-datasource",
+                    "moduleConfiguration" : {
+                        "content" : {
+                            "value" : "{\"columns\" : [\"value\", \"instantTime\", \"field3\"], \"data\" : [{\"value\" : \"1\", \"instantTime\" : \"now\", \"field3\" : \"$mail\"}, {\"value\" : \"2\", \"instantTime\" : \"later\", \"field3\" : \"f3\"}]}"
+                        }
+                    },
+                    "structuredOutput" : true,
+                    "userRequiredInputFieldList" : [
+                        {
+                            "value" : "$mail",
+                            "description" : "The mail of the user"
+                        }
+                    ]
+                }
+            ],
+            "algorithmList" : [
+                {
+                    "id" : "alg_id_1",
+                    "name" : "alg 1",
+                    "description" : "desc",
+                    "code" : "var ret = requiredKpiValueList[0].value;\n ret.data[0].value = 2;\n ret.columns.push('field4');\n return ret;"
+                },{
+                    "id" : "alg_id_2",
+                    "name" : "alg 2",
+                    "description" : "desc",
+                    "code" : "return {\"status\" : -1, \"moreInfo\" : {\"limitMax\": 10, \"limitMin\": 3}};"
+                },{
+                    "id" : "alg_id_3",
+                    "name" : "alg 3",
+                    "description" : "desc",
+                    "code" : "return {\"status\" : 1, \"moreInfo\" : {\"limitMax\": 20, \"limitMin\": 5}};"
+                }
+            ]
+        }
+    ]
+}
