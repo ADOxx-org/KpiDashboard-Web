@@ -19,3 +19,5 @@ The project include data source wrapper available as REST service, used by the d
 - Client centric: the dashboard is totally Javascript code except a server side REST service used only as a wrapper to contact the different data sources
 
 more informations can be found in the [wiki](../../wiki)
+
+![](https://user-images.githubusercontent.com/29372157/27433875-553b637a-570b-11e7-8b66-9bf0ec657911.png)
