@@ -44,10 +44,10 @@ public class RESTService {
             JsonObject config = Json.createReader(new StringReader(moduleConfiguration)).readObject();
             JsonObject ret = DSWrapper.callModule(moduleName, config);
             return ret.toString();
-            //throw new Exception("error");
         }catch(Exception ex){
             ex.printStackTrace();
-            return "{\"error\":\""+ex.getMessage().replace("\\", "\\\\").replace("\"", "\\\"")+"\"}";
+            return "{\"moduleName\":\""+moduleName+"\", \"moduleConfiguration\":\""+moduleConfiguration.replace("\\", "\\\\").replace("\"", "\\\"")+"\", \"error\":\""+ex.getMessage().replace("\\", "\\\\").replace("\"", "\\\"")+"\"}";
+            //return "{\"error\":\"Module: "+moduleName+"\\nConfiguration: "+moduleConfiguration.replace("\\", "\\\\").replace("\"", "\\\"")+"\\nDescription: "+ex.getMessage().replace("\\", "\\\\").replace("\"", "\\\"")+"\"}";
         }        
     }
     

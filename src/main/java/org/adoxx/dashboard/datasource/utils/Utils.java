@@ -56,7 +56,7 @@ public class Utils {
     
     public static HttpResults sendHTTP(String url, String mode, String dataToSend, ArrayList<String[]> htmlHeaderList, boolean ignoreSSLSelfSigned, boolean ignoreSSLWrongCN) throws Exception{
         
-        //System.setProperty("java.net.useSystemProxies", "true");
+        System.setProperty("java.net.useSystemProxies", "true");
         
         if(ignoreSSLSelfSigned){
             SSLContext sc = SSLContext.getInstance("SSL");

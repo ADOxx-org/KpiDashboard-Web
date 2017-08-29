@@ -179,18 +179,25 @@ Dashboard.addWidget({
                         content : function(){
                             var html = '<table class="table table-condensed">';
                             for(var modelInfoKey in infoList){
-                                html += '<tr><th>Errors in '+infoList[modelInfoKey].modelName+' Goals:</th><th></th></tr>';
+                                var trHead = '<tr><th>Errors in '+infoList[modelInfoKey].modelName+' Goals:</th><th></th></tr>';
+                                var trBody = '';
                                 for(var objInfoKey in infoList[modelInfoKey].objList){
                                     var obj = infoList[modelInfoKey].objList[objInfoKey];
                                     if(obj.isGoal === true && obj.measure === null && obj.errorDescription != null)
-                                        html += '<tr><td>'+obj.objectName+'</td><td>'+obj.errorDescription+'</td></tr>';
+                                        trBody += '<tr><td>'+obj.objectName+'</td><td>'+obj.errorDescription+'</td></tr>';
                                 }
-                                html += '<tr><th>Errors in '+infoList[modelInfoKey].modelName+' KPIs:</th><th></th></tr>';
+                                if(trBody != '')
+                                    html += trHead + trBody;
+                                
+                                trHead = '<tr><th>Errors in '+infoList[modelInfoKey].modelName+' KPIs:</th><th></th></tr>';
+                                trBody = '';
                                 for(var objInfoKey in infoList[modelInfoKey].objList){
                                     var obj = infoList[modelInfoKey].objList[objInfoKey];
                                     if(obj.isGoal === false && obj.measure === null && obj.errorDescription != null)
-                                        html += '<tr><td>'+obj.objectName+'</td><td>'+obj.errorDescription+'</td></tr>';
+                                        trBody += '<tr><td>'+obj.objectName+'</td><td>'+obj.errorDescription+'</td></tr>';
                                 }
+                                if(trBody != '')
+                                    html += trHead + trBody;
                             }
                             html += '<table>';
                             return html;

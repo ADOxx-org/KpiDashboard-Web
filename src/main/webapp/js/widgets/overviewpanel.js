@@ -72,7 +72,7 @@ Dashboard.addWidget({
                 });
             });
             
-            Dashboard.GeneralFilters.onFilterByValuesChange(function(e){
+            Dashboard.events.onFilterByValuesChange(function(e){
                 var showSuccessGoal = e.showSuccessGoal;
                 var showFailureGoal = e.showFailureGoal;
                 var showUnknownGoal = e.showUnknownGoal;
@@ -259,7 +259,7 @@ Dashboard.addWidget({
             filterNode.trigger('change');
         };
         
-        Dashboard.GeneralFilters.onFilterBySelectionClick(function(e){
+        Dashboard.events.onFilterBySelectionClick(function(e){
             _onSelection(e.modelId, e.isGoal, e.objectId);
         });
         

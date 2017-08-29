@@ -175,7 +175,7 @@ Dashboard.addWidget({
             }())
         );
         
-        Dashboard.GeneralFilters.onFilterBySelectionClick(function(e){
+        Dashboard.events.onFilterBySelectionClick(function(e){
             var levelId = null;
             ret.find('tr').each(function(index, trDom){
                 var tr = $(trDom);
@@ -195,7 +195,7 @@ Dashboard.addWidget({
         });
         
         
-        Dashboard.GeneralFilters.onFilterByValuesChange(function(e){
+        Dashboard.events.onFilterByValuesChange(function(e){
             var showSuccessGoal = e.showSuccessGoal;
             var showFailureGoal = e.showFailureGoal;
             var showUnknownGoal = e.showUnknownGoal;

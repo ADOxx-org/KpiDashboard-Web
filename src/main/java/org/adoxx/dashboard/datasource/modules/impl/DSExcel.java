@@ -69,10 +69,19 @@ public class DSExcel implements DSModuleI{
     @Override
     public JsonObject obtainData(JsonObject configuration) throws Exception {
         String filePath = configuration.getJsonObject("filePath").getString("value");
+        if(filePath.isEmpty()) throw new Exception("Excel file path not provided");
         String password = configuration.getJsonObject("password").getString("value");
-        Integer sheetNumber = Integer.parseInt(configuration.getJsonObject("sheetNumber").getString("value"));
+        Integer sheetNumber = -1;
+        try {
+            sheetNumber = Integer.parseInt(configuration.getJsonObject("sheetNumber").getString("value"));
+        }catch(Exception ex) {
+            throw new Exception("The Excel sheet page number is incorrect: '"+configuration.getJsonObject("sheetNumber").getString("value")+"'");
+        }
+        if(sheetNumber < 1) throw new Exception("The Excel sheet page number must be greater then 0");
         String cellSeries = configuration.getJsonObject("cellSeries").getString("value").replace(" ", "").toUpperCase();
+        if(cellSeries.isEmpty()) throw new Exception("Excel cell series not provided");
         String cellValues = configuration.getJsonObject("cellValues").getString("value").replace(" ", "").toUpperCase();
+        if(cellValues.isEmpty()) throw new Exception("Excel cell values not provided");
         
         InputStream input = null;
         try{
@@ -86,6 +95,9 @@ public class DSExcel implements DSModuleI{
             JsonArrayBuilder columnList = Json.createArrayBuilder();
             JsonArrayBuilder dataList = Json.createArrayBuilder();
             String[] cellSeriesSplit = cellSeries.split(";");
+            if(cellSeriesSplit.length != 2) throw new Exception("Excel cell series format incorrect: "+cellSeries);
+            if(cellSeriesSplit[0].isEmpty()) throw new Exception("Excel title cell for the series not provided");
+            if(cellSeriesSplit[1].isEmpty()) throw new Exception("Excel cell series not provided");
             
             ArrayList<Integer> cellValueList = new ArrayList<Integer>();
             boolean seriesOnColumns = isNumber(cellSeries.charAt(0));
@@ -93,12 +105,17 @@ public class DSExcel implements DSModuleI{
             cellValueList.add(seriesIndex);
             for(String cellValue : cellValues.split(",")){
                 if(cellValue.contains("-")){
-                    int cellValueStart = seriesOnColumns?Integer.parseInt(cellValue.split("-")[0])-1:convertColumnToNumber(cellValue.split("-")[0]);
-                    int cellValueEnd = seriesOnColumns?Integer.parseInt(cellValue.split("-")[1])-1:convertColumnToNumber(cellValue.split("-")[1]);
+                    String[] cellValueRangeSplit = cellValue.split("-");
+                    if(cellValueRangeSplit.length != 2) throw new Exception("Excel cell value format incorrect: "+cellValue);
+                    if(cellValueRangeSplit[0].isEmpty()) throw new Exception("Excel cell value range start not provided");
+                    if(cellValueRangeSplit[1].isEmpty()) throw new Exception("Excel cell value range end not provided");
+                    int cellValueStart = seriesOnColumns?Integer.parseInt(cellValueRangeSplit[0])-1:convertColumnToNumber(cellValueRangeSplit[0]);
+                    int cellValueEnd = seriesOnColumns?Integer.parseInt(cellValueRangeSplit[1])-1:convertColumnToNumber(cellValueRangeSplit[1]);
                     boolean ascendentOrder = cellValueStart<=cellValueEnd;
                     for(int i=cellValueStart;(ascendentOrder)?i<=cellValueEnd:i>=cellValueEnd;i=(ascendentOrder)?i+1:i-1)
                         cellValueList.add(i);
                 } else {
+                    if(cellValue.isEmpty()) throw new Exception("Excel cell value not provided");
                     cellValueList.add(seriesOnColumns?Integer.parseInt(cellValue)-1:convertColumnToNumber(cellValue));
                 }
             }
@@ -106,8 +123,13 @@ public class DSExcel implements DSModuleI{
             for(int i=0;i<cellValueList.size();i++){
                 JsonObjectBuilder dataObjJson = Json.createObjectBuilder();
                 for(String cellSerie : cellSeriesSplit[1].split(",")){
-                    int cellSerieStart = seriesOnColumns?convertColumnToNumber(cellSerie.split("-")[0]):Integer.parseInt(cellSerie.split("-")[0])-1;
-                    int cellSerieEnd = (cellSerie.split("-").length == 2)?seriesOnColumns?convertColumnToNumber(cellSerie.split("-")[1]):Integer.parseInt(cellSerie.split("-")[1])-1:cellSerieStart;
+                    if(cellSerie.isEmpty()) throw new Exception("Excel cell serie not provided");
+                    String[] cellSerieRangeSplit = cellSerie.split("-");
+                    if(cellSerieRangeSplit.length > 2) throw new Exception("Excel cell serie format incorrect: "+cellSerie);
+                    if(cellSerieRangeSplit[0].isEmpty()) throw new Exception((cellSerieRangeSplit.length == 2)?"Excel cell serie range start not provided":"Excel cell serie not provided");
+                    if(cellSerieRangeSplit.length == 2 && cellSerieRangeSplit[1].isEmpty()) throw new Exception("Excel cell serie range end not provided");
+                    int cellSerieStart = seriesOnColumns?convertColumnToNumber(cellSerieRangeSplit[0]):Integer.parseInt(cellSerieRangeSplit[0])-1;
+                    int cellSerieEnd = (cellSerieRangeSplit.length == 2)?seriesOnColumns?convertColumnToNumber(cellSerieRangeSplit[1]):Integer.parseInt(cellSerieRangeSplit[1])-1:cellSerieStart;
                     boolean ascendentOrder = cellSerieStart<=cellSerieEnd;
                     for(int j=cellSerieStart;(ascendentOrder)?j<=cellSerieEnd:j>=cellSerieEnd;j=(ascendentOrder)?j+1:j-1)
                         if(i==0)

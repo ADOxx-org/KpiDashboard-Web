@@ -58,7 +58,7 @@ public class DSJsonFile implements DSModuleI{
             JsonObject ret = Json.createReader(new StringReader(jsonS)).readObject();
             return ret;
         } else
-            throw new Exception("Configuration not valid: " + configuration.toString());
+            throw new Exception("JSON configuration not valid: " + configuration.toString());
     }
 
     @Override

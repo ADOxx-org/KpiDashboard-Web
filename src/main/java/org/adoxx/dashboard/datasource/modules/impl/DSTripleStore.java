@@ -49,7 +49,9 @@ public class DSTripleStore implements DSModuleI{
     @Override
     public JsonObject obtainData(JsonObject configuration) throws Exception {
         String endpoint = configuration.getJsonObject("endpoint").getString("value");
+        if(endpoint.isEmpty()) throw new Exception("TripleStore endpoint not provided");
         String sparqlQuery = configuration.getJsonObject("sparqlQuery").getString("value");
+        if(sparqlQuery.isEmpty()) throw new Exception("TripleStore SPARQL query not provided");
         
         ArrayList<String[]> htmlHeaderList = new ArrayList<String[]>();
         htmlHeaderList.add(new String[]{"Content-Type", "application/x-www-form-urlencoded"});

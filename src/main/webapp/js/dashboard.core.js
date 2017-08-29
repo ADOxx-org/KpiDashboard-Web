@@ -1,23 +1,8 @@
 var Dashboard = {
-    
     datasourceUpdatingIntervallInSeconds : 5*60,
-    
-    _backgroudDatasourceUpdateIntervalId : null,
-    
     preferredLang : null,
-    
     widgetFileToLoadList : ['tablechart', 'overviewpanel', 'overviewtable', 'overviewtabledetailed'],
     
-    _widgetList : [],
-    
-    _widgetInstanceList : [],
-    
-    _dashboardGrid : null,
-    
-    _datasourceDataCacheList : [],
-    
-    _widgetInstancesFilterInfos : {},
-
     setLang : function(lang){
         switch(lang){
             case 'en': this.preferredLang = 'en'; break;
@@ -57,784 +42,30 @@ var Dashboard = {
             }
         });
         
-        this._widgetList.push(widget);
-    },
-    
-    instanciateWidget : function(widgetId){
-
-        var widgetInstance = {          
-            id : Utils.generateUUID(),
-            widgetId : widgetId,
-            widgetConfig : null,
-            userInputList : {},
-            position : {
-                x : null,
-                y : null
-            },
-            size : {
-                w : null,
-                h : null
-            }
-        };
-        
-        this.configureWidgetInstance(widgetInstance, function(){
-            this._widgetInstanceList.push(widgetInstance);
-            this._initWidgetContent(widgetInstance);
-            this._addElementToTheGrid(widgetInstance.panel.node, widgetInstance.size.w, widgetInstance.size.h, widgetInstance.position.x, widgetInstance.position.y);
-        }.bind(this));
-    },
-    
-    configureWidgetInstance : function(widgetInstance, onSuccessCallback){
-        var widget = this._findWidget(widgetInstance.widgetId);
-        
-        var widgetConfigDialog = this.createWidgetConfiguration(widget, widgetInstance.widgetConfig);
-
-        Utils.createDialogBootstrap(widgetConfigDialog.nodeElement, 'Widget Configuration: ' + widget.getName(), function(){
-            /*
-             - when the return is false the modal dialog do not close
-             - when the return is true the modal dialog is closed and the second function is called
-             */
-            try{
-                var config = widgetConfigDialog.okHandler();
-                if(config == null)
-                    throw 'Error: widget config is null';
-                var expectedWidgetConfig = widget.getConfiguration();
-                for(var key in config)
-                    if(expectedWidgetConfig[key] == null ||  config[key].value == null ||  config[key].value == '')
-                        throw 'Error: the returned widget configuration is different from the configuration expected';
-                
-                widgetInstance.widgetConfig = config;
-                widgetInstance.size.w = widget.getPreferredSize().w;
-                widgetInstance.size.h = widget.getPreferredSize().h;
-            }catch(e){
-                console.log('Widget "' + widget.getName() + '" configuration returned an error: ' + e);
-                $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>'+e+'</div>')
-                    .fadeTo(5000, 500)
-                    .slideUp(500, function(){
-                        $(this).remove();
-                    })
-                    .appendTo(widgetConfigDialog.nodeElement);
-                return false;
-            }
-            
-            return true;
-            
-        }.bind(this), function(){
-            onSuccessCallback.call();
-        }.bind(this));
-    },
-    
-    _initWidgetContent : function(widgetInstance){
-        var widget = this._findWidget(widgetInstance.widgetId);
-        var widgetIntancePanel = this.createWidgetIntancePanel(widgetInstance);
-        
-        try{
-            widget.createContent(widgetInstance.widgetConfig, widgetInstance.id);
-        }catch(e){
-            console.log('Widget "' + widget.getName() + '" content pre-creation returned an error: ' + e);
-        }
-        
-        widgetIntancePanel.refresh();
-    },
-    
-    _updateDatasourceCache : function(datasourceToUpdateIdList, callbackOnSuccess, callbackOnFailure, forceUpdate, widgetInstanceCaller){
-        var _checkIfDateTimeRequireUpdate = function(dateTimeString){
-            if(dateTimeString == null)
-                return true;
-            var ret = Date.now() - (new Date(dateTimeString).getTime()) >= this.datasourceUpdatingIntervallInSeconds * 1000 ;
-            return ret;
-        }.bind(this);
-        
-        var countUpdatedDatasource = 0;
-        var cachedDatasourceToUpdateList = [];
-        
-        this._datasourceDataCacheList.forEach(function(cachedDatasource){
-            if(forceUpdate === true || cachedDatasource.lastObtainedValue == null || _checkIfDateTimeRequireUpdate(cachedDatasource.lastUpdateTime))
-                cachedDatasourceToUpdateList.push(cachedDatasource);
-        });
-        
-        var totDatasourceToUpdate = cachedDatasourceToUpdateList.length;
-        if(datasourceToUpdateIdList != null)
-            totDatasourceToUpdate = datasourceToUpdateIdList.length;
-        
-        if(totDatasourceToUpdate == 0)
-            callbackOnSuccess.call();
-        
-        cachedDatasourceToUpdateList.forEach(function(cachedDatasource){
-            if(datasourceToUpdateIdList == null || (datasourceToUpdateIdList != null && datasourceToUpdateIdList.indexOf(cachedDatasource.id) != -1 && cachedDatasource.usedByWidgetList.indexOf(widgetInstanceCaller.id) != -1 )){
-                var configOrig = cachedDatasource.moduleConfiguration;
-                var configFinal = Utils.clone(configOrig);
-
-                cachedDatasource.userRequiredInputFieldList.forEach(function(item, index){
-                    var userVal = widgetInstanceCaller.userInputList[widgetInstanceCaller.id+'-'+cachedDatasource.id+'-'+index];
-                    if(userVal == null)
-                        userVal = '';
-                    for(var configEntry in configFinal){
-                        //configFinal[configEntry] = {};
-                        configFinal[configEntry].value = configFinal[configEntry].value.replace(new RegExp(Utils.escapeRegExp(item.value), 'g'), userVal);
-                    }
-                });
-                
-                Utils.callDatasource(cachedDatasource.moduleName, configFinal, function(data){
-                    cachedDatasource.lastUpdateTime = new Date().toISOString();
-                    cachedDatasource.lastObtainedValue = data;
-                    
-                    countUpdatedDatasource++;
-                    if(countUpdatedDatasource === totDatasourceToUpdate)
-                        if(typeof callbackOnSuccess === 'function')
-                            callbackOnSuccess.call();
-                }, callbackOnFailure);
-            }
-        });
-    },
-    
-    _startBackgroudDatasourceUpdate : function(callbackOnSuccess){
-               
-        var _updateFunction = function(){
-            Dashboard._widgetInstanceList.forEach(function(widgetInstance){
-                widgetInstance.panel.refresh(false);
-            });
-            if(this.datasourceUpdatingIntervallInSeconds > 0)
-                this._backgroudDatasourceUpdateIntervalId = setTimeout(_updateFunction, Math.round(this.datasourceUpdatingIntervallInSeconds)*1000);
-        }.bind(this);
-        
-        _updateFunction();
-    },
-    
-    _stopBackgroudDatasourceUpdate : function(){
-        clearTimeout(this._backgroudDatasourceUpdateIntervalId);
-    },
-    
-    createWidgetConfiguration : function(widgetSelected, presetConfig){
-        if(presetConfig != null && typeof presetConfig !== 'object')
-            throw 'Invalid presetConfig';
-        
-        var conf = null;
-        if(typeof widgetSelected.createConfiguration === 'function')
-            conf = widgetSelected.createConfiguration(presetConfig);
-        else
-            conf = Dashboard._createConfigurationFor(widgetSelected, presetConfig);
-        
-        if(typeof conf !== 'object' || typeof conf.nodeElement !== 'object' || typeof conf.okHandler !== 'function')
-            throw 'Invalid configuration for the widget ' + widgetSelected.getName();
-        
-        conf.nodeElement = $('<div>')
-                                .append(
-                                    $('<div>', {text : widgetSelected.getDescriptionInLang()})
-                                        .addClass('panel panel-primary panel-body')
-                                )
-                                .append(conf.nodeElement);
-        
-        return conf;
-    },
-    
-    createWidgetIntancePanel : function(widgetInstance){
-
-        widgetInstance.panel = {
-            _bodyNode : $('<div class="panel-body">'),
-            node : $('<div class="panel panel-default">'),
-            
-            setDisabled : function(isDisabled){
-                if(isDisabled === true)
-                    this.node.addClass('disabled');
-                else
-                    this.node.removeClass('disabled');
-            },
-            
-            initPanel : function(){
-                
-                if(widgetInstance.userInputList == null)
-                    widgetInstance.userInputList = {};
-                
-                var _userInputMenu = function(){
-                    var requiredCachedDatasourceWithInputList = [];
-                    Dashboard._datasourceDataCacheList.forEach(function(datasourceCached){
-                        if(datasourceCached.usedByWidgetList.indexOf(widgetInstance.id) != -1)
-                            if(datasourceCached.userRequiredInputFieldList.length > 0)
-                                requiredCachedDatasourceWithInputList.push(datasourceCached);
-                    });
-                    if(requiredCachedDatasourceWithInputList.length == 0)
-                        return null;
-                    
-                    var ulNode = $('<ul class="dropdown-menu dropdown-menu-left">');
-                    requiredCachedDatasourceWithInputList.forEach(function(datasource){
-                        datasource.userRequiredInputFieldList.forEach(function(item, index){
-                            
-                            var previousVal = widgetInstance.userInputList[widgetInstance.id+'-'+datasource.id+'-'+index];
-                            if(previousVal == null) 
-                                previousVal = '';
-
-                            ulNode.append(
-                                $('<li><a href="#">Insert the value for "' + item.value + '":<br> <input id="'+widgetInstance.id+'-'+datasource.id+'-'+index+'" type="text" class="form-control" value="' + previousVal + '" placeholder="' + item.value + '"></a></li>')
-                                    .popover({
-                                        placement : 'auto right',
-                                        container : 'body',
-                                        title : 'The Datasource "' + datasource.name + '" require a value for "' + item.value + '"',
-                                        content : item.description,
-                                        trigger : 'hover'
-                                    })
-                                    .change(function(){
-                                        widgetInstance.userInputList[widgetInstance.id+'-'+datasource.id+'-'+index] = $('#'+widgetInstance.id+'-'+datasource.id+'-'+index).val();
-                                    })
-                                )
-                                .append($('<li role="separator" class="divider"></li>'))
-                            ;
-                        });
-                    });
-                    
-                    var ret = $('<div class="btn-group" role="group">')
-                        .on('show.bs.dropdown', function () {
-                            //this.node.addClass('dropdownmenu_fix');
-                            //fix for the visibility overflow (the menu is moved in the body on visualization).
-                            $('body').append(ulNode.css({
-                                display: 'block',
-                                position: 'absolute',
-                                left: ret.offset().left,
-                                top: ret.offset().top + ret.outerHeight()
-                              }).detach());
-                        }.bind(this))
-                        .on('hide.bs.dropdown', function (e) {
-                            //this.node.removeClass('dropdownmenu_fix');
-                            //fix for the visibility overflow (the menu is moved back from the body on hide).
-                            ret.append(ulNode.css({
-                                position: false,
-                                display: false,
-                                left: false,
-                                right: false
-                              }).detach());
-                        }.bind(this))
-                        .append($('<button type="button" title="Specify Inputs" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><span class="glyphicon glyphicon-pencil"></span><span class="caret"></span></button>'))
-                        .append(
-                            ulNode
-                                .click(function(e){
-                                    //fix for the menu moved on the body that cause it to be closed on every click
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                })
-                        )
-                    ;
-                    
-                    return ret;
-                }.call(this);
-                
-                this.node.empty();
-                
-                this.node
-                    .append(
-                        $('<div class="panel-heading clearfix">')
-                        
-                        .append(
-                            $('<div class="btn-group pull-right">')
-                                .append(_userInputMenu)
-                                .append(
-                                    $('<button title="Refresh" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-refresh"></span></button>')
-                                        .click(function(){
-                                            this.refresh();
-                                        }.bind(this))
-                                )
-                                .append(
-                                    $('<button title="Configure" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-wrench"></span></button>')
-                                        .click(function(){
-                                            this.reconfigure();
-                                        }.bind(this))
-                                )
-                                .append(
-                                    $('<button title="Remove" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-trash"></span></button>')
-                                        .click(function(){
-                                            this.remove();
-                                        }.bind(this))
-                                )
-                        )
-                        
-                    )
-                    .append(this._bodyNode)
-            },
-            
-            setWidgetContent : function(widgetContent){
-                this._bodyNode.empty();
-                this._bodyNode.append(widgetContent);
-            },
-            
-            refresh : function(forceRefresh){
-                if(forceRefresh == null)
-                    forceRefresh = true;
-                
-                this.initPanel();
-                
-                var requiredCachedDatasourceList = function(widgetInstanceId){
-                    var ret = [];
-                    Dashboard._datasourceDataCacheList.forEach(function(datasourceCached){
-                        if(datasourceCached.usedByWidgetList.indexOf(widgetInstanceId) != -1)
-                            if(ret.indexOf(datasourceCached.id) == -1)
-                                ret.push(datasourceCached.id);
-                    });
-                    return ret;
-                }.call(this, widgetInstance.id);
-                
-                Dashboard._updateDatasourceCache(requiredCachedDatasourceList, function(){
-                    var widget = Dashboard._findWidget(widgetInstance.widgetId);
-                    
-                    var widgetContent = null;
-                    try{
-                        widgetContent = widget.createContent(widgetInstance.widgetConfig, widgetInstance.id);
-                        $('<div class="alert alert-success fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Widget updated successfully</div>')
-                            .fadeTo(3000, 500)
-                            .slideUp(500, function(){
-                                $(this).remove();
-                            })
-                            .appendTo(this.node);
-                    }catch(e){
-                        console.log('Widget "' + widgetInstance.widgetId + '" content refresh returned an error: ' + e);
-                        $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>'+e+'</div>')
-                            .fadeTo(5000, 500)
-                            .slideUp(500, function(){
-                                $(this).remove();
-                            })
-                            .appendTo(this.node);
-                    }
-                    
-                    this.setWidgetContent(widgetContent);
-                }.bind(this), function(error){
-                    console.log('Widget "' + widgetInstance.widgetId + '" content refresh returned an error: ' + error);
-                    $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>'+error+'</div>')
-                        .fadeTo(5000, 500)
-                        .slideUp(500, function(){
-                            $(this).remove();
-                        })
-                        .appendTo(this.node);
-                }.bind(this), forceRefresh, widgetInstance);
-            },
-            
-            reconfigure : function(){
-                Dashboard.configureWidgetInstance(widgetInstance, function(){
-                    this.refresh();
-                }.bind(this));
-            },
-            
-            remove : function(){
-                //update the _datasourceDataCacheList
-                for(var i=0;i<Dashboard._datasourceDataCacheList.length;i++){
-                    var index = Dashboard._datasourceDataCacheList[i].usedByWidgetList.indexOf(widgetInstance.id);
-                    if(index != -1){
-                        Dashboard._datasourceDataCacheList[i].usedByWidgetList.splice(index, 1);
-                        if(Dashboard._datasourceDataCacheList[i].usedByWidgetList.length === 0){
-                            Dashboard._datasourceDataCacheList.splice(i, 1);
-                        }
-                        break;
-                    }
-                }
-                
-                //update the _widgetInstanceList
-                for(var i=0;i<Dashboard._widgetInstanceList.length;i++){
-                    if(Dashboard._widgetInstanceList[i].id === widgetInstance.id){
-                        Dashboard._widgetInstanceList.splice(i, 1);
-                        break;
-                    }
-                }
-                
-                //update the dom
-                Dashboard._dashboardGrid.removeWidget(this.node[0].parentElement);
-            }
-        };
-        
-        return widgetInstance.panel;
-    },
-    
-    _findWidget : function(widgetId){
-        var widget = null;
-        for(var i=0;i<this._widgetList.length;i++)
-            if(this._widgetList[i].getId() === widgetId)
-                widget = this._widgetList[i];
-        if(widget === null)
-            throw 'Impossible to find the widget with id ' + widgetId;
-        return widget;
-    },
-    
-    _initializeWidgetList : function(callback){
-        if (typeof callback !== 'function' && callback != null)
-            throw 'callback must be a function';
-        var loadedWidgets = 0;
-        for(var i=0;i<this.widgetFileToLoadList.length;i++)
-            Utils.loadScript('./js/widgets/' + this.widgetFileToLoadList[i] + '.js', function(){
-                loadedWidgets++;
-                if(loadedWidgets === this.widgetFileToLoadList.length)
-                    callback.call();
-            }.bind(this));
-    },
-    
-    _createConfigurationFor : function(widgetSelected, presetConfig){
-        //TODO
-        return {
-            nodeElement : null,
-            okHandler : function(){}
-        };
-    },
-    
-    _initializeDashboardGrid : function(){
-        var options = {
-            float: false,
-            handle: '.grid-stack-item-content',
-            itemClass: 'grid-stack-item',
-            acceptWidgets: '.grid-stack-item'
-        };
-        var dashboardDiv = $('#dashboardDiv').addClass('grid-stack');
-        dashboardDiv.gridstack(options);
-        this._dashboardGrid = dashboardDiv.data('gridstack');
-    },
-    
-    _initializeDashboardContent : function(){
-        while(this._widgetInstanceList.length != 0)
-            this._widgetInstanceList[0].panel.remove();
-        
-        var savedConfig = null;
-        try{
-            savedConfig = this.getSaveConfig();
-        }catch(e){}
-        if(savedConfig != null){
-            if(savedConfig.dashboardConfig.datasourceUpdatingIntervall != null){
-                $('#updMinTxt').val(savedConfig.dashboardConfig.datasourceUpdatingIntervall);
-                $('#updMinTxt').trigger("change");
-            }
-            if(savedConfig.dashboardConfig.preferredLang != null)
-                this.preferredLang = savedConfig.dashboardConfig.preferredLang;
-            if(savedConfig.dashboardStatus.kpiModel != null)
-                ModelManager.storeKpiModel(savedConfig.dashboardStatus.kpiModel);
-            if(savedConfig.dashboardStatus.widgetInstanceList != null){
-                savedConfig.dashboardStatus.widgetInstanceList.forEach(function(widgetInstance){
-                    this._widgetInstanceList.push(widgetInstance);
-                    this._initWidgetContent(widgetInstance);
-                    this._addElementToTheGrid(widgetInstance.panel.node, widgetInstance.size.w, widgetInstance.size.h, widgetInstance.position.x, widgetInstance.position.y);
-                }.bind(this));
-            }
-                
-        }
-    },
-    
-    _initializeWidgetPalette : function(){
-        for(var i=0;i<Dashboard._widgetList.length;i++){
-            var widget = Dashboard._widgetList[i];
-            $('#widgetList')
-                .append(
-                    $('<li class="widgetPaletteElement">')
-                        .attr('title', widget.getDescriptionInLang())
-                        .append(
-                            $('<a href="#"><span class="'+widget.getIconClass()+'"></span> '+widget.getName()+'</a>')
-                                .click(function(id){
-                                    Dashboard.instanciateWidget(id);
-                                }.bind(this, widget.getId()))
-                                .popover({
-                                    placement : 'left',
-                                    container : 'body',
-                                    content : widget.getDescriptionInLang(),
-                                    trigger : 'hover'
-                                })
-                        )
-                )
-            ;
-        }
-    },
-    
-    _addElementToTheGrid : function(element, width, height, x, y){
-        var elToAdd = $('<div class="grid-stack-item">')
-            .append(
-                element
-                    .addClass('grid-stack-item-content')
-            )
-        ;
-        var autoPosition = (x == null || y == null);
-                           
-        this._dashboardGrid.addWidget(elToAdd, x, y, width, height, autoPosition);
-    },
-    
-    _getGridElementPositionAndSize : function(node){
-        var gridNode = $(node);
-        var data = gridNode.data('_gridstack_node');
-        
-        return {
-            size : {
-                w : data.width,
-                h : data.height
-            },
-            position : {
-                x : data.x,
-                y : data.y
-            }
-        };
-    },
-    
-    exportConfig : function(){
-        return {
-            exportTime : new Date().toISOString(),
-            dashboardConfig : {
-                datasourceUpdatingIntervall : $('#updMinTxt').val(),
-                preferredLang : this.preferredLang
-            },
-            dashboardStatus : {
-                kpiModel : ModelManager.getKpiModel(),
-                widgetInstanceList : function(){
-                    var ret = [];
-                    this._widgetInstanceList.forEach(function(widgetInstance){
-                        var instance = Object.assign({}, widgetInstance);
-                        var gridNodePositionAndSize = this._getGridElementPositionAndSize(instance.panel.node[0].parentNode);
-                        instance.position.x = gridNodePositionAndSize.position.x;
-                        instance.position.y = gridNodePositionAndSize.position.y;
-                        instance.size.w = gridNodePositionAndSize.size.w;
-                        instance.size.h = gridNodePositionAndSize.size.h;
-                        delete instance.panel;
-                        ret.push(instance);
-                    }.bind(this));
-                    return ret;
-                }.call(this)
-            }
-        };
-    },
-
-    importConfig : function(config){
-        localStorage.setItem('adoxxDashboardConfig', JSON.stringify(config));
-        this._initializeDashboardContent();
-    },
-    
-    localSaveConfig : function(){
-        localStorage.setItem('adoxxDashboardConfig', JSON.stringify(this.exportConfig()));
-    },
-    
-    getSaveConfig : function(){
-        if(localStorage.adoxxDashboardConfig == null)
-            throw 'dashboard configuration not present';
-        return JSON.parse(localStorage.adoxxDashboardConfig);
-    },
-    
-    isLocallySaved : function(){
-        return localStorage.adoxxDashboardConfig != null;
-    },
-    
-    localUnsaveConfig : function(){
-        localStorage.removeItem('adoxxDashboardConfig');
-    },
-    
-    GeneralFilters : {
-        onFilterByValuesChange : function(handler){
-            if(typeof handler != 'function')
-                throw 'The provided handler must be a function';
-            $('#dashboardDiv').on('filterByValuesChange', handler);
-        },
-        
-        onFilterBySelectionClick : function(handler){
-            if(typeof handler != 'function')
-                throw 'The provided handler must be a function';
-            $('#dashboardDiv').on('filterBySelectionClick', handler);
-        }
-    },
-        
-    _initFilterMenu : function(){
-        $('#filterByTreeModelsUl').empty();
-        var kpiModel = null;
-        try{
-            kpiModel = ModelManager.getKpiModel();
-        }catch(e){}
-        if(kpiModel == null)
-            return;
-        
-        var _createFilterMenu = function(){
-            
-            var _createFilterMenuRec = function(rootNode){
-                var liNode = $('<li'+(rootNode.nodes!=null?' class="dropdown-submenu"':'')+'>').append(
-                    $('<a href="#"><span class="'+rootNode.icon+'"></span> '+rootNode.text+'</a>').append(function(){
-                        if(rootNode.nodes==null)
-                            return null;
-                        return $('<span class="glyphicon glyphicon-chevron-right"></span>').click(function(e){
-                            $(this).parent().next('ul').toggle();
-                            $(this).toggleClass('glyphicon-chevron-right');
-                            $(this).toggleClass('glyphicon-chevron-down');
-                            e.stopPropagation();
-                            e.preventDefault();
-                        });
-                    }()).click(function(){
-                        Handlers.onFilterBySelectionClick(rootNode.model_id, rootNode.isAGoal, rootNode.object_id);
-                    }).popover({
-                        placement : 'auto left',
-                        container : 'body',
-                        html : true,
-                        title : rootNode.text + ' description',
-                        content : rootNode.description,
-                        trigger : 'hover'
-                    })
-                );
-                
-                if(rootNode.nodes!=null){
-                    var ulNode = $('<ul class="dropdown-menu">');
-                    liNode.append(ulNode);
-                    rootNode.nodes.forEach(function(item){
-                        ulNode.append(_createFilterMenuRec(item));
-                    });
-                }
-                
-                return liNode;
-            };
-            
-            var rootJsonNode = ModelManager.buildModelTreeStructure();
-            return _createFilterMenuRec(rootJsonNode);
-            
-        };
-        
-        $('#filterByTreeModelsUl').append(
-            _createFilterMenu()
-        ).prev().off('click').click(function(e){
-            $(this).next('ul').toggle();
-            $(this).find('span').toggleClass('glyphicon-chevron-right');
-            $(this).find('span').toggleClass('glyphicon-chevron-down');
-            e.stopPropagation();
-            e.preventDefault();
-        });
-    },
-    
-    _filterWidgetInstancesByValue : function(showSuccessGoal, showFailureGoal, showUnknownGoal, minKpiVal, sameKpiVal, maxKpiVal){
-        this._widgetInstanceList.forEach(function(widgetInstance){
-            var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
-            var toVisualize = false;
-            if(widgetInstanceFilterInfo != null)
-                for(var usedGoal in widgetInstanceFilterInfo.usedGoals){
-                    var lastMeasure = widgetInstanceFilterInfo.usedGoals[usedGoal].lastMeasure;
-                    var lastValue = (lastMeasure!=null)?lastMeasure.status:null;
-                    if(lastValue == null)
-                        toVisualize = true;
-                    else {
-                        if((lastValue > 0) && showSuccessGoal)
-                            toVisualize = true;
-                        if((lastValue < 0) && showFailureGoal)
-                            toVisualize = true;
-                        if((lastValue == 0) && showUnknownGoal)
-                            toVisualize = true;
-                    }
-                }
-            if(widgetInstanceFilterInfo == null || jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals))
-                toVisualize = true;
-            
-            widgetInstance.panel.setDisabled(!toVisualize);
-        }.bind(this));
-        
-        this._widgetInstanceList.forEach(function(widgetInstance){
-            var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
-            var toVisualize = false;
-
-            if(widgetInstanceFilterInfo != null)
-                for(var usedkpi in widgetInstanceFilterInfo.usedKpis){
-                    var lastMeasure = widgetInstanceFilterInfo.usedKpis[usedkpi].lastMeasure;
-                    var lastValue = (lastMeasure!=null)?lastMeasure.data[0][lastMeasure.columns[0]]:null;
-                    if(lastValue == null){
-                        toVisualize = true;
-                    }else{
-                        if(minKpiVal != '' && (lastValue > minKpiVal))
-                            toVisualize = true;
-                        if(sameKpiVal != '' && (lastValue == sameKpiVal))
-                            toVisualize = true;
-                        if(maxKpiVal != '' && (lastValue < maxKpiVal))
-                            toVisualize = true;
-                    }
-                }
-            if(widgetInstanceFilterInfo == null || (minKpiVal == '' && sameKpiVal == '' && maxKpiVal == ''))
-                toVisualize = true;
-            
-            widgetInstance.panel.setDisabled(!toVisualize);
-        }.bind(this));
-    },
-    
-    _filterWidgetInstancesBySelection : function(modelId, isGoal, objectId){
-        this._widgetInstanceList.forEach(function(widgetInstance){
-            var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
-            var toVisualize = false;
-            
-            if(modelId == null || widgetInstanceFilterInfo == null)
-                toVisualize = true;
-            else {
-                if(widgetInstanceFilterInfo.usedModels.indexOf(modelId) == -1)
-                    toVisualize = false;
-                else {
-                    if(objectId == null){
-                        if(isGoal && !jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals))
-                            toVisualize = true;
-                        if(!isGoal && !jQuery.isEmptyObject(widgetInstanceFilterInfo.usedKpis))
-                            toVisualize = true;
-                    } else {
-                        if(isGoal && widgetInstanceFilterInfo.usedGoals[objectId] != null)
-                            toVisualize = true;
-                        if(!isGoal && widgetInstanceFilterInfo.usedKpis[objectId] != null)
-                            toVisualize = true;
-                    }
-                }
-            }
-            
-            if(widgetInstanceFilterInfo == null || (widgetInstanceFilterInfo.usedModels.length == 0 && jQuery.isEmptyObject(widgetInstanceFilterInfo.usedKpis) && jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals)))
-                toVisualize = true;
-            
-            widgetInstance.panel.setDisabled(!toVisualize);
-        }.bind(this));
-    },
-    
-    _updateWidgetInstanceFilterInfos : function(widgetInstanceId, modelId, isAGoal, objectId, lastMeasure){
-        var currentWidgetInstanceFilterInfos = this._widgetInstancesFilterInfos[widgetInstanceId];
-        if(currentWidgetInstanceFilterInfos == null){
-            currentWidgetInstanceFilterInfos = {
-                usedModels : [],
-                usedKpis : {},
-                usedGoals : {}
-            };
-            this._widgetInstancesFilterInfos[widgetInstanceId] = currentWidgetInstanceFilterInfos;
-        }
-        if(currentWidgetInstanceFilterInfos.usedModels.indexOf(modelId)===-1)
-            currentWidgetInstanceFilterInfos.usedModels.push(modelId);
-        if(isAGoal){
-            if(currentWidgetInstanceFilterInfos.usedGoals[objectId]==null)
-                currentWidgetInstanceFilterInfos.usedGoals[objectId] = { lastMeasure : lastMeasure };
-        } else {
-            if(currentWidgetInstanceFilterInfos.usedKpis[objectId]==null)
-                currentWidgetInstanceFilterInfos.usedKpis[objectId] = { lastMeasure : lastMeasure };
-        }
-    },
-    
-    _getCachedDatasource : function(widgetInstanceId, dataSourceId){
-        for(var i=0;i<this._datasourceDataCacheList.length;i++)
-            if(this._datasourceDataCacheList[i].id === dataSourceId)
-                if(this._datasourceDataCacheList[i].userRequiredInputFieldList.length === 0 || (this._datasourceDataCacheList[i].userRequiredInputFieldList.length != 0 && this._datasourceDataCacheList[i].usedByWidgetList.indexOf(widgetInstanceId) != -1))
-                    return this._datasourceDataCacheList[i];
-        return null;
-    },
-    
-    _updateCachedDatasourceList : function(widgetInstanceId, dataSource){
-
-        var cachedDatasource = this._getCachedDatasource(widgetInstanceId, dataSource.id);
-        if(cachedDatasource == null){
-            cachedDatasource = Utils.clone(dataSource);
-            cachedDatasource.lastUpdateTime = null;
-            cachedDatasource.lastObtainedValue = null;
-            cachedDatasource.usedByWidgetList = [];
-            
-            this._datasourceDataCacheList.push(cachedDatasource);
-        }
-        
-        if(cachedDatasource.usedByWidgetList.indexOf(widgetInstanceId) === -1)
-            cachedDatasource.usedByWidgetList.push(widgetInstanceId);
+        this._internals._widgetSystem._widgetList.push(widget);
     },
     
     evaluateKpi : function(widgetInstanceId, modelId, kpiId){
-        
         var currentWidgetInstanceId = widgetInstanceId;
         
-        this._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, false, kpiId, null);
+        this._internals._filterSystem._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, false, kpiId, null);
         
         var _calculateKpiRec = function(kpiInfoObj){
-            
             var kpiMeasure = null;
             var dataSourceOutput = null;           
             
             if(kpiInfoObj.connectedDataSource != null){
-                this._updateCachedDatasourceList(currentWidgetInstanceId, kpiInfoObj.connectedDataSource);
-                var cachedDatasource = this._getCachedDatasource(currentWidgetInstanceId, kpiInfoObj.connectedDataSource.id);
+                this._internals._datasourceCacheSystem._updateCachedDatasourceList(currentWidgetInstanceId, kpiInfoObj.connectedDataSource);
+                var cachedDatasource = this._internals._datasourceCacheSystem._getCachedDatasource(currentWidgetInstanceId, kpiInfoObj.connectedDataSource.id);
 
                 dataSourceOutput = Utils.clone(cachedDatasource.lastObtainedValue);
                 
                 if(dataSourceOutput == null)
                     throw 'Update the widget content';
+                if(dataSourceOutput.error != null){
+                    console.log('Error occurred in the DataWrapper module "'+dataSourceOutput.moduleName+'": '+dataSourceOutput.error+'\nConfiguration: '+dataSourceOutput.moduleConfiguration);
+                    throw 'Error occurred in the DataWrapper module "'+dataSourceOutput.moduleName+'": '+dataSourceOutput.error;
+                }
             }
             
             if(kpiInfoObj.connectedAlgorithm != null){
@@ -885,19 +116,17 @@ var Dashboard = {
         
         var ret = _calculateKpiRec(kpiInfo);
         
-        this._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, false, kpiId, ret);
+        this._internals._filterSystem._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, false, kpiId, ret);
         
         return ret;
     },
     
     evaluateGoal : function(widgetInstanceId, modelId, goalId){
-
         var currentWidgetInstanceId = widgetInstanceId;
         
-        this._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, true, goalId, null);
+        this._internals._filterSystem._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, true, goalId, null);
         
         var _calculateGoalRec = function(goalInfoObj){
-            
             if(goalInfoObj.connectedAlgorithm == null)
                 if(goalInfoObj.connectedAlgorithm.code == null || goalInfoObj.connectedAlgorithm.code == '' || goalInfoObj.connectedAlgorithm.code.indexOf('return ') === -1)
                     throw 'The algorithm with id ' + goalInfoObj.connectedAlgorithm.id + ' must provide a javascript code with a return statement in the end';
@@ -927,7 +156,7 @@ var Dashboard = {
                 
             }.bind(this));
             
-            var algF = new Function('requiredKpiValueList', 'requiredGoalList', goalInfoObj.connectedAlgorithm.code);
+            var algF = new Function('requiredKpiValueList', 'requiredGoalValueList', goalInfoObj.connectedAlgorithm.code);
             
             var goalMeasure = null;
             try{
@@ -950,29 +179,799 @@ var Dashboard = {
         
         var ret = _calculateGoalRec(goalInfo);
         
-        this._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, true, goalId, ret);
+        this._internals._filterSystem._updateWidgetInstanceFilterInfos(currentWidgetInstanceId, modelId, true, goalId, ret);
         
         return ret;
+    },
+    
+    events : {
+        onFilterByValuesChange : function(handler){
+            if(typeof handler != 'function')
+                throw 'The provided handler must be a function';
+            $('#dashboardDiv').on('filterByValuesChange', handler);
+        },
+        
+        onFilterBySelectionClick : function(handler){
+            if(typeof handler != 'function')
+                throw 'The provided handler must be a function';
+            $('#dashboardDiv').on('filterBySelectionClick', handler);
+        }
+    },
+    
+    _internals : {
+        _initializeDashboardContent : function(){
+            while(this._widgetSystem._widgetInstanceList.length != 0)
+                this._widgetSystem._widgetInstanceList[0].panel.remove();
+            
+            var savedConfig = null;
+            try{
+                savedConfig = Dashboard._internals._importExportSystem._getSaveConfig();
+            }catch(e){}
+            if(savedConfig != null){
+                if(savedConfig.dashboardConfig.datasourceUpdatingIntervall != null){
+                    $('#updMinTxt').val(savedConfig.dashboardConfig.datasourceUpdatingIntervall);
+                    $('#updMinTxt').trigger("change");
+                }
+                if(savedConfig.dashboardConfig.preferredLang != null)
+                    Dashboard.preferredLang = savedConfig.dashboardConfig.preferredLang;
+                if(savedConfig.dashboardStatus.kpiModel != null)
+                    ModelManager.storeKpiModel(savedConfig.dashboardStatus.kpiModel);
+                if(savedConfig.dashboardStatus.widgetInstanceList != null){
+                    savedConfig.dashboardStatus.widgetInstanceList.forEach(function(widgetInstance){
+                        this._widgetSystem._widgetInstanceList.push(widgetInstance);
+                        this._widgetSystem._initWidgetContent(widgetInstance);
+                        this._gridSystem._addElementToTheGrid(widgetInstance.panel.node, widgetInstance.size.w, widgetInstance.size.h, widgetInstance.position.x, widgetInstance.position.y);
+                    }.bind(this));
+                }
+            }
+        },
+        
+        _widgetSystem : {
+            _widgetList : [],
+            _widgetInstanceList : [],
+            
+            _instanciateWidget : function(widgetId){
+                var widgetInstance = {          
+                    id : Utils.generateUUID(),
+                    widgetId : widgetId,
+                    widgetConfig : null,
+                    userInputList : {},
+                    position : {
+                        x : null,
+                        y : null
+                    },
+                    size : {
+                        w : null,
+                        h : null
+                    }
+                };
+                
+                this._configureWidgetInstance(widgetInstance, function(){
+                    this._widgetInstanceList.push(widgetInstance);
+                    this._initWidgetContent(widgetInstance);
+                    Dashboard._internals._gridSystem._addElementToTheGrid(widgetInstance.panel.node, widgetInstance.size.w, widgetInstance.size.h, widgetInstance.position.x, widgetInstance.position.y);
+                }.bind(this));
+            },
+            
+            _configureWidgetInstance : function(widgetInstance, onSuccessCallback){
+                var widget = this._findWidget(widgetInstance.widgetId);
+                
+                var widgetConfigDialog = this._createWidgetConfiguration(widget, widgetInstance.widgetConfig);
+
+                Utils.createDialogBootstrap(widgetConfigDialog.nodeElement, 'Widget Configuration: ' + widget.getName(), function(){
+                    /*
+                     - when the return is false the modal dialog do not close
+                     - when the return is true the modal dialog is closed and the second function is called
+                     */
+                    try{
+                        var config = widgetConfigDialog.okHandler();
+                        if(config == null)
+                            throw 'Error: widget config is null';
+                        var expectedWidgetConfig = widget.getConfiguration();
+                        for(var key in config)
+                            if(expectedWidgetConfig[key] == null ||  config[key].value == null ||  config[key].value == '')
+                                throw 'Error: the returned widget configuration is different from the configuration expected';
+                        
+                        widgetInstance.widgetConfig = config;
+                        widgetInstance.size.w = widget.getPreferredSize().w;
+                        widgetInstance.size.h = widget.getPreferredSize().h;
+                    }catch(e){
+                        console.log('Widget "' + widget.getName() + '" configuration returned an error: ' + e);
+                        $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Error occurred:<br>'+e+'</div>')
+                            .fadeTo(5000, 500)
+                            /*.slideUp(500, function(){
+                                $(this).remove();
+                            })*/
+                            .appendTo(widgetConfigDialog.nodeElement);
+                        return false;
+                    }
+                    
+                    return true;
+                    
+                }.bind(this), function(){
+                    onSuccessCallback.call();
+                }.bind(this));
+            },
+            
+            _createWidgetConfiguration : function(widgetSelected, presetConfig){
+                if(presetConfig != null && typeof presetConfig !== 'object')
+                    throw 'Invalid presetConfig';
+                
+                var conf = null;
+                if(typeof widgetSelected.createConfiguration === 'function')
+                    conf = widgetSelected.createConfiguration(presetConfig);
+                else
+                    conf = this._autoCreateConfigurationFor(widgetSelected, presetConfig);
+                
+                if(typeof conf !== 'object' || typeof conf.nodeElement !== 'object' || typeof conf.okHandler !== 'function')
+                    throw 'Invalid configuration for the widget ' + widgetSelected.getName();
+                
+                conf.nodeElement = $('<div>')
+                    .append($('<div>', {text : widgetSelected.getDescriptionInLang()})
+                        .addClass('panel panel-primary panel-body'))
+                    .append(conf.nodeElement);
+                
+                return conf;
+            },
+            
+            _autoCreateConfigurationFor : function(widgetSelected, presetConfig){
+                //TODO
+                return {
+                    nodeElement : null,
+                    okHandler : function(){}
+                };
+            },
+            
+            _initWidgetContent : function(widgetInstance){
+                var widget = this._findWidget(widgetInstance.widgetId);
+                var widgetIntancePanel = this._initWidgetIntancePanel(widgetInstance);
+                
+                try{
+                    widget.createContent(widgetInstance.widgetConfig, widgetInstance.id);
+                }catch(e){
+                    console.log('Widget "' + widget.getName() + '" content pre-creation returned an error: ' + e);
+                }
+                
+                widgetIntancePanel.refresh();
+            },
+            
+            _findWidget : function(widgetId){
+                var widget = null;
+                for(var i=0;i<this._widgetList.length;i++)
+                    if(this._widgetList[i].getId() === widgetId)
+                        widget = this._widgetList[i];
+                if(widget === null)
+                    throw 'Impossible to find the widget with id ' + widgetId;
+                return widget;
+            },
+            
+            _initWidgetIntancePanel : function(widgetInstance){
+                widgetInstance.panel = {
+                    _bodyNode : $('<div class="panel-body">'),
+                    node : $('<div class="panel panel-default">'),
+                    
+                    setDisabled : function(isDisabled){
+                        if(isDisabled === true)
+                            this.node.addClass('disabled');
+                        else
+                            this.node.removeClass('disabled');
+                    },
+                    
+                    initPanel : function(){
+                        
+                        if(widgetInstance.userInputList == null)
+                            widgetInstance.userInputList = {};
+                        
+                        var _userInputMenu = function(){
+                            var requiredCachedDatasourceWithInputList = [];
+                            Dashboard._internals._datasourceCacheSystem._datasourceDataCacheList.forEach(function(datasourceCached){
+                                if(datasourceCached.usedByWidgetList.indexOf(widgetInstance.id) != -1)
+                                    if(datasourceCached.userRequiredInputFieldList.length > 0)
+                                        requiredCachedDatasourceWithInputList.push(datasourceCached);
+                            });
+                            if(requiredCachedDatasourceWithInputList.length == 0)
+                                return null;
+                            
+                            var ulNode = $('<ul class="dropdown-menu dropdown-menu-left">');
+                            requiredCachedDatasourceWithInputList.forEach(function(datasource){
+                                datasource.userRequiredInputFieldList.forEach(function(item, index){
+                                    
+                                    var previousVal = widgetInstance.userInputList[widgetInstance.id+'-'+datasource.id+'-'+index];
+                                    if(previousVal == null) 
+                                        previousVal = '';
+
+                                    ulNode.append(
+                                        $('<li><a href="#">Insert the value for "' + item.value + '":<br> <input id="'+widgetInstance.id+'-'+datasource.id+'-'+index+'" type="text" class="form-control" value="' + previousVal + '" placeholder="' + item.value + '"></a></li>')
+                                            .popover({
+                                                placement : 'auto right',
+                                                container : 'body',
+                                                title : 'The Datasource "' + datasource.name + '" require a value for "' + item.value + '"',
+                                                content : item.description,
+                                                trigger : 'hover'
+                                            })
+                                            .change(function(){
+                                                widgetInstance.userInputList[widgetInstance.id+'-'+datasource.id+'-'+index] = $('#'+widgetInstance.id+'-'+datasource.id+'-'+index).val();
+                                            })
+                                        )
+                                        .append($('<li role="separator" class="divider"></li>'))
+                                    ;
+                                });
+                            });
+                            
+                            var ret = $('<div class="btn-group" role="group">')
+                                .on('show.bs.dropdown', function () {
+                                    //this.node.addClass('dropdownmenu_fix');
+                                    //fix for the visibility overflow (the menu is moved in the body on visualization).
+                                    $('body').append(ulNode.css({
+                                        display: 'block',
+                                        position: 'absolute',
+                                        left: ret.offset().left,
+                                        top: ret.offset().top + ret.outerHeight()
+                                      }).detach());
+                                }.bind(this))
+                                .on('hide.bs.dropdown', function (e) {
+                                    //this.node.removeClass('dropdownmenu_fix');
+                                    //fix for the visibility overflow (the menu is moved back from the body on hide).
+                                    ret.append(ulNode.css({
+                                        position: false,
+                                        display: false,
+                                        left: false,
+                                        right: false
+                                      }).detach());
+                                }.bind(this))
+                                .append($('<button type="button" title="Specify Inputs" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><span class="glyphicon glyphicon-pencil"></span><span class="caret"></span></button>'))
+                                .append(
+                                    ulNode.click(function(e){
+                                        //fix for the menu moved on the body that cause it to be closed on every click
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                    })
+                                )
+                            ;
+                            
+                            return ret;
+                        }.call(this);
+                        
+                        this.node.empty();
+                        
+                        this.node.append(
+                            $('<div class="panel-heading clearfix">').append(
+                                $('<div class="btn-group pull-right">')
+                                .append(_userInputMenu)
+                                .append(
+                                    $('<button title="Refresh" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-refresh"></span></button>')
+                                    .click(function(){
+                                        this.refresh();
+                                    }.bind(this))
+                                )
+                                .append(
+                                    $('<button title="Configure" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-wrench"></span></button>')
+                                    .click(function(){
+                                        this.reconfigure();
+                                    }.bind(this))
+                                )
+                                .append(
+                                    $('<button title="Remove" type="button" class="btn btn-default btn-sm"><span class="glyphicon glyphicon-trash"></span></button>')
+                                    .click(function(){
+                                        this.remove();
+                                    }.bind(this))
+                                )
+                            )
+                        )
+                        .append(this._bodyNode)
+                        ;
+                    },
+                    
+                    setWidgetContent : function(widgetContent){
+                        this._bodyNode.empty();
+                        this._bodyNode.append(widgetContent);
+                    },
+                    
+                    refresh : function(forceRefresh){
+                        if(forceRefresh == null)
+                            forceRefresh = true;
+                        
+                        this.initPanel();
+                        
+                        var requiredCachedDatasourceList = function(widgetInstanceId){
+                            var ret = [];
+                            Dashboard._internals._datasourceCacheSystem._datasourceDataCacheList.forEach(function(datasourceCached){
+                                if(datasourceCached.usedByWidgetList.indexOf(widgetInstanceId) != -1)
+                                    if(ret.indexOf(datasourceCached.id) == -1)
+                                        ret.push(datasourceCached.id);
+                            });
+                            return ret;
+                        }.call(this, widgetInstance.id);
+                        
+                        Dashboard._internals._datasourceCacheSystem._updateDatasourceCache(requiredCachedDatasourceList, function(){
+                            var widget = Dashboard._internals._widgetSystem._findWidget(widgetInstance.widgetId);
+                            
+                            var widgetContent = null;
+                            try{
+                                widgetContent = widget.createContent(widgetInstance.widgetConfig, widgetInstance.id);
+                                $('<div class="alert alert-success fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Widget updated successfully</div>')
+                                    .fadeTo(3000, 500)
+                                    .slideUp(500, function(){
+                                        $(this).remove();
+                                    })
+                                    .appendTo(this.node);
+                            }catch(e){
+                                console.log('Widget "' + widgetInstance.widgetId + '" content refresh returned an error:\n' + e);
+                                $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Error occurred:<br>'+e+'</div>')
+                                    .fadeTo(5000, 500)
+                                    /*.slideUp(500, function(){
+                                        $(this).remove();
+                                    })*/
+                                    .appendTo(this.node);
+                            }
+                            
+                            this.setWidgetContent(widgetContent);
+                        }.bind(this), function(error){
+                            console.log('Widget "' + widgetInstance.widgetId + '" content refresh returned an error:\n' + error);
+                            $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Error occurred:<br>'+error+'</div>')
+                                .fadeTo(5000, 500)
+                                /*.slideUp(500, function(){
+                                    $(this).remove();
+                                })*/
+                                .appendTo(this.node);
+                        }.bind(this), forceRefresh, widgetInstance);
+                    },
+                    
+                    reconfigure : function(){
+                        Dashboard._internals._widgetSystem._configureWidgetInstance(widgetInstance, function(){
+                            this.refresh();
+                        }.bind(this));
+                    },
+                    
+                    remove : function(){
+                        //update the _datasourceDataCacheList
+                        var datasourceCacheList = Dashboard._internals._datasourceCacheSystem._datasourceDataCacheList;
+                        for(var i=0;i<datasourceCacheList.length;i++){
+                            var index = datasourceCacheList[i].usedByWidgetList.indexOf(widgetInstance.id);
+                            if(index != -1){
+                                datasourceCacheList[i].usedByWidgetList.splice(index, 1);
+                                if(datasourceCacheList[i].usedByWidgetList.length === 0){
+                                    datasourceCacheList.splice(i, 1);
+                                }
+                                break;
+                            }
+                        }
+                        
+                        //update the _widgetInstanceList
+                        var widgetInstanceList = Dashboard._internals._widgetSystem._widgetInstanceList;
+                        for(var i=0;i<widgetInstanceList.length;i++){
+                            if(widgetInstanceList[i].id === widgetInstance.id){
+                                widgetInstanceList.splice(i, 1);
+                                break;
+                            }
+                        }
+                        
+                        //update the dom
+                        Dashboard._internals._gridSystem._removeElementFromTheGrid(this.node[0].parentElement);
+                    }
+                };
+                
+                return widgetInstance.panel;
+            },
+            
+            _initializeWidgetList : function(callback){
+                if (typeof callback !== 'function' && callback != null)
+                    throw 'callback must be a function';
+                var loadedWidgets = 0;
+                for(var i=0;i<Dashboard.widgetFileToLoadList.length;i++){
+                    Utils.loadScript('./js/widgets/' + Dashboard.widgetFileToLoadList[i] + '.js', function(){
+                        loadedWidgets++;
+                        if(loadedWidgets === Dashboard.widgetFileToLoadList.length)
+                            callback.call();
+                    }.bind(this));
+                }
+            },
+            
+            _initializeWidgetPalette : function(){
+                for(var i=0;i<this._widgetList.length;i++){
+                    var widget = this._widgetList[i];
+                    $('#widgetList')
+                        .append(
+                            $('<li class="widgetPaletteElement">')
+                                .attr('title', widget.getDescriptionInLang())
+                                .append(
+                                    $('<a href="#"><span class="'+widget.getIconClass()+'"></span> '+widget.getName()+'</a>')
+                                        .click(function(id){
+                                            Dashboard._internals._widgetSystem._instanciateWidget(id);
+                                        }.bind(this, widget.getId()))
+                                        .popover({
+                                            placement : 'left',
+                                            container : 'body',
+                                            content : widget.getDescriptionInLang(),
+                                            trigger : 'hover'
+                                        })
+                                )
+                        )
+                    ;
+                }
+            }
+        },
+        
+        _datasourceCacheSystem : {
+            _backgroudDatasourceUpdateIntervalId : null,
+            _datasourceDataCacheList : [],
+            
+            _getCachedDatasource : function(widgetInstanceId, dataSourceId){
+                for(var i=0;i<this._datasourceDataCacheList.length;i++)
+                    if(this._datasourceDataCacheList[i].id === dataSourceId)
+                        if(this._datasourceDataCacheList[i].userRequiredInputFieldList.length === 0 || (this._datasourceDataCacheList[i].userRequiredInputFieldList.length != 0 && this._datasourceDataCacheList[i].usedByWidgetList.indexOf(widgetInstanceId) != -1))
+                            return this._datasourceDataCacheList[i];
+                return null;
+            },
+            
+            _updateCachedDatasourceList : function(widgetInstanceId, dataSource){
+                var cachedDatasource = this._getCachedDatasource(widgetInstanceId, dataSource.id);
+                if(cachedDatasource == null){
+                    cachedDatasource = Utils.clone(dataSource);
+                    cachedDatasource.lastUpdateTime = null;
+                    cachedDatasource.lastObtainedValue = null;
+                    cachedDatasource.usedByWidgetList = [];
+                    
+                    this._datasourceDataCacheList.push(cachedDatasource);
+                }
+                
+                if(cachedDatasource.usedByWidgetList.indexOf(widgetInstanceId) === -1)
+                    cachedDatasource.usedByWidgetList.push(widgetInstanceId);
+            },
+            
+            _updateDatasourceCache : function(datasourceToUpdateIdList, callbackOnSuccess, callbackOnFailure, forceUpdate, widgetInstanceCaller){
+                var _checkIfDateTimeRequireUpdate = function(dateTimeString){
+                    if(dateTimeString == null)
+                        return true;
+                    var ret = Date.now() - (new Date(dateTimeString).getTime()) >= Dashboard.datasourceUpdatingIntervallInSeconds * 1000 ;
+                    return ret;
+                }.bind(this);
+                
+                var countUpdatedDatasource = 0;
+                var cachedDatasourceToUpdateList = [];
+                
+                this._datasourceDataCacheList.forEach(function(cachedDatasource){
+                    if(forceUpdate === true || cachedDatasource.lastObtainedValue == null || _checkIfDateTimeRequireUpdate(cachedDatasource.lastUpdateTime))
+                        cachedDatasourceToUpdateList.push(cachedDatasource);
+                });
+                
+                var totDatasourceToUpdate = cachedDatasourceToUpdateList.length;
+                if(datasourceToUpdateIdList != null)
+                    totDatasourceToUpdate = datasourceToUpdateIdList.length;
+                
+                if(totDatasourceToUpdate == 0)
+                    callbackOnSuccess.call();
+                
+                cachedDatasourceToUpdateList.forEach(function(cachedDatasource){
+                    if(datasourceToUpdateIdList == null || (datasourceToUpdateIdList != null && datasourceToUpdateIdList.indexOf(cachedDatasource.id) != -1 && cachedDatasource.usedByWidgetList.indexOf(widgetInstanceCaller.id) != -1 )){
+                        var configOrig = cachedDatasource.moduleConfiguration;
+                        var configFinal = Utils.clone(configOrig);
+
+                        cachedDatasource.userRequiredInputFieldList.forEach(function(item, index){
+                            var userVal = widgetInstanceCaller.userInputList[widgetInstanceCaller.id+'-'+cachedDatasource.id+'-'+index];
+                            if(userVal == null)
+                                userVal = '';
+                            for(var configEntry in configFinal){
+                                //configFinal[configEntry] = {};
+                                configFinal[configEntry].value = configFinal[configEntry].value.replace(new RegExp(Utils.escapeRegExp(item.value), 'g'), userVal);
+                            }
+                        });
+                        
+                        Utils.callDatasource(cachedDatasource.moduleName, configFinal, function(data){
+                            cachedDatasource.lastUpdateTime = new Date().toISOString();
+                            cachedDatasource.lastObtainedValue = data;
+                            
+                            countUpdatedDatasource++;
+                            if(countUpdatedDatasource === totDatasourceToUpdate)
+                                if(typeof callbackOnSuccess === 'function')
+                                    callbackOnSuccess.call();
+                        }, callbackOnFailure);
+                    }
+                });
+            },
+            
+            _startBackgroudDatasourceUpdate : function(callbackOnSuccess){  
+                var _updateFunction = function(){
+                    Dashboard._internals._widgetSystem._widgetInstanceList.forEach(function(widgetInstance){
+                        widgetInstance.panel.refresh(false);
+                    });
+                    if(Dashboard.datasourceUpdatingIntervallInSeconds > 0)
+                        this._backgroudDatasourceUpdateIntervalId = setTimeout(_updateFunction, Math.round(Dashboard.datasourceUpdatingIntervallInSeconds)*1000);
+                }.bind(this);
+                
+                _updateFunction();
+            },
+            
+            _stopBackgroudDatasourceUpdate : function(){
+                clearTimeout(this._backgroudDatasourceUpdateIntervalId);
+            }
+        },
+        
+        _filterSystem : {
+            _widgetInstancesFilterInfos : {},
+            
+            _initFilterMenu : function(){
+                $('#filterByTreeModelsUl').empty();
+                var kpiModel = null;
+                try{
+                    kpiModel = ModelManager.getKpiModel();
+                }catch(e){}
+                if(kpiModel == null)
+                    return;
+                
+                var _createFilterMenu = function(){
+                    
+                    var _createFilterMenuRec = function(rootNode){
+                        var liNode = $('<li'+(rootNode.nodes!=null?' class="dropdown-submenu"':'')+'>').append(
+                            $('<a href="#"><span class="'+rootNode.icon+'"></span> '+rootNode.text+'</a>').append(function(){
+                                if(rootNode.nodes==null)
+                                    return null;
+                                return $('<span class="glyphicon glyphicon-chevron-right"></span>').click(function(e){
+                                    $(this).parent().next('ul').toggle();
+                                    $(this).toggleClass('glyphicon-chevron-right');
+                                    $(this).toggleClass('glyphicon-chevron-down');
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                });
+                            }()).click(function(){
+                                Handlers.onFilterBySelectionClick(rootNode.model_id, rootNode.isAGoal, rootNode.object_id);
+                            }).popover({
+                                placement : 'auto left',
+                                container : 'body',
+                                html : true,
+                                title : rootNode.text + ' description',
+                                content : rootNode.description,
+                                trigger : 'hover'
+                            })
+                        );
+                        
+                        if(rootNode.nodes!=null){
+                            var ulNode = $('<ul class="dropdown-menu">');
+                            liNode.append(ulNode);
+                            rootNode.nodes.forEach(function(item){
+                                ulNode.append(_createFilterMenuRec(item));
+                            });
+                        }
+                        
+                        return liNode;
+                    };
+                    
+                    var rootJsonNode = ModelManager.buildModelTreeStructure();
+                    return _createFilterMenuRec(rootJsonNode);
+                };
+                
+                $('#filterByTreeModelsUl').append(
+                    _createFilterMenu()
+                ).prev().off('click').click(function(e){
+                    $(this).next('ul').toggle();
+                    $(this).find('span').toggleClass('glyphicon-chevron-right');
+                    $(this).find('span').toggleClass('glyphicon-chevron-down');
+                    e.stopPropagation();
+                    e.preventDefault();
+                });
+            },
+            
+            _filterWidgetInstancesByValue : function(showSuccessGoal, showFailureGoal, showUnknownGoal, minKpiVal, sameKpiVal, maxKpiVal){
+                Dashboard._internals._widgetSystem._widgetInstanceList.forEach(function(widgetInstance){
+                    var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
+                    var toVisualize = false;
+                    if(widgetInstanceFilterInfo != null)
+                        for(var usedGoal in widgetInstanceFilterInfo.usedGoals){
+                            var lastMeasure = widgetInstanceFilterInfo.usedGoals[usedGoal].lastMeasure;
+                            var lastValue = (lastMeasure!=null)?lastMeasure.status:null;
+                            if(lastValue == null)
+                                toVisualize = true;
+                            else {
+                                if((lastValue > 0) && showSuccessGoal)
+                                    toVisualize = true;
+                                if((lastValue < 0) && showFailureGoal)
+                                    toVisualize = true;
+                                if((lastValue == 0) && showUnknownGoal)
+                                    toVisualize = true;
+                            }
+                        }
+                    if(widgetInstanceFilterInfo == null || jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals))
+                        toVisualize = true;
+                    
+                    widgetInstance.panel.setDisabled(!toVisualize);
+                }.bind(this));
+                
+                Dashboard._internals._widgetSystem._widgetInstanceList.forEach(function(widgetInstance){
+                    var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
+                    var toVisualize = false;
+
+                    if(widgetInstanceFilterInfo != null)
+                        for(var usedkpi in widgetInstanceFilterInfo.usedKpis){
+                            var lastMeasure = widgetInstanceFilterInfo.usedKpis[usedkpi].lastMeasure;
+                            var lastValue = (lastMeasure!=null)?lastMeasure.data[0][lastMeasure.columns[0]]:null;
+                            if(lastValue == null){
+                                toVisualize = true;
+                            }else{
+                                if(minKpiVal != '' && (lastValue > minKpiVal))
+                                    toVisualize = true;
+                                if(sameKpiVal != '' && (lastValue == sameKpiVal))
+                                    toVisualize = true;
+                                if(maxKpiVal != '' && (lastValue < maxKpiVal))
+                                    toVisualize = true;
+                            }
+                        }
+                    if(widgetInstanceFilterInfo == null || (minKpiVal == '' && sameKpiVal == '' && maxKpiVal == ''))
+                        toVisualize = true;
+                    
+                    widgetInstance.panel.setDisabled(!toVisualize);
+                }.bind(this));
+            },
+            
+            _filterWidgetInstancesBySelection : function(modelId, isGoal, objectId){
+                Dashboard._internals._widgetSystem._widgetInstanceList.forEach(function(widgetInstance){
+                    var widgetInstanceFilterInfo = this._widgetInstancesFilterInfos[widgetInstance.id];
+                    var toVisualize = false;
+                    
+                    if(modelId == null || widgetInstanceFilterInfo == null)
+                        toVisualize = true;
+                    else {
+                        if(widgetInstanceFilterInfo.usedModels.indexOf(modelId) == -1)
+                            toVisualize = false;
+                        else {
+                            if(objectId == null){
+                                if(isGoal && !jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals))
+                                    toVisualize = true;
+                                if(!isGoal && !jQuery.isEmptyObject(widgetInstanceFilterInfo.usedKpis))
+                                    toVisualize = true;
+                            } else {
+                                if(isGoal && widgetInstanceFilterInfo.usedGoals[objectId] != null)
+                                    toVisualize = true;
+                                if(!isGoal && widgetInstanceFilterInfo.usedKpis[objectId] != null)
+                                    toVisualize = true;
+                            }
+                        }
+                    }
+                    
+                    if(widgetInstanceFilterInfo == null || (widgetInstanceFilterInfo.usedModels.length == 0 && jQuery.isEmptyObject(widgetInstanceFilterInfo.usedKpis) && jQuery.isEmptyObject(widgetInstanceFilterInfo.usedGoals)))
+                        toVisualize = true;
+                    
+                    widgetInstance.panel.setDisabled(!toVisualize);
+                }.bind(this));
+            },
+            
+            _updateWidgetInstanceFilterInfos : function(widgetInstanceId, modelId, isAGoal, objectId, lastMeasure){
+                var currentWidgetInstanceFilterInfos = this._widgetInstancesFilterInfos[widgetInstanceId];
+                if(currentWidgetInstanceFilterInfos == null){
+                    currentWidgetInstanceFilterInfos = {
+                        usedModels : [],
+                        usedKpis : {},
+                        usedGoals : {}
+                    };
+                    this._widgetInstancesFilterInfos[widgetInstanceId] = currentWidgetInstanceFilterInfos;
+                }
+                if(currentWidgetInstanceFilterInfos.usedModels.indexOf(modelId)===-1)
+                    currentWidgetInstanceFilterInfos.usedModels.push(modelId);
+                if(isAGoal){
+                    if(currentWidgetInstanceFilterInfos.usedGoals[objectId]==null)
+                        currentWidgetInstanceFilterInfos.usedGoals[objectId] = { lastMeasure : lastMeasure };
+                } else {
+                    if(currentWidgetInstanceFilterInfos.usedKpis[objectId]==null)
+                        currentWidgetInstanceFilterInfos.usedKpis[objectId] = { lastMeasure : lastMeasure };
+                }
+            }
+        },
+        
+        _gridSystem : {
+            _dashboardGrid : null,
+            
+            _initializeDashboardGrid : function(){
+                var options = {
+                    float: false,
+                    handle: '.grid-stack-item-content',
+                    itemClass: 'grid-stack-item',
+                    acceptWidgets: '.grid-stack-item'
+                };
+                var dashboardDiv = $('#dashboardDiv').addClass('grid-stack');
+                dashboardDiv.gridstack(options);
+                this._dashboardGrid = dashboardDiv.data('gridstack');
+            },
+            
+            _addElementToTheGrid : function(element, width, height, x, y){
+                var elToAdd = $('<div class="grid-stack-item">')
+                    .append(
+                        element
+                            .addClass('grid-stack-item-content')
+                    )
+                ;
+                var autoPosition = (x == null || y == null);
+                                   
+                this._dashboardGrid.addWidget(elToAdd, x, y, width, height, autoPosition);
+            },
+            
+            _removeElementFromTheGrid : function(element){
+                this._dashboardGrid.removeWidget(element);
+            },
+            
+            _getGridElementPositionAndSize : function(node){
+                var gridNode = $(node);
+                var data = gridNode.data('_gridstack_node');
+                
+                return {
+                    size : {
+                        w : data.width,
+                        h : data.height
+                    },
+                    position : {
+                        x : data.x,
+                        y : data.y
+                    }
+                };
+            }
+        },
+        
+        _importExportSystem : {
+            _exportConfig : function(){
+                return {
+                    exportTime : new Date().toISOString(),
+                    dashboardConfig : {
+                        datasourceUpdatingIntervall : $('#updMinTxt').val(),
+                        preferredLang : Dashboard.preferredLang
+                    },
+                    dashboardStatus : {
+                        kpiModel : ModelManager.getKpiModel(),
+                        widgetInstanceList : function(){
+                            var ret = [];
+                            Dashboard._internals._widgetSystem._widgetInstanceList.forEach(function(widgetInstance){
+                                var instance = Object.assign({}, widgetInstance);
+                                var gridNodePositionAndSize = Dashboard._internals._gridSystem._getGridElementPositionAndSize(instance.panel.node[0].parentNode);
+                                instance.position.x = gridNodePositionAndSize.position.x;
+                                instance.position.y = gridNodePositionAndSize.position.y;
+                                instance.size.w = gridNodePositionAndSize.size.w;
+                                instance.size.h = gridNodePositionAndSize.size.h;
+                                delete instance.panel;
+                                ret.push(instance);
+                            }.bind(this));
+                            return ret;
+                        }.call(this)
+                    }
+                };
+            },
+
+            _importConfig : function(config){
+                localStorage.setItem('adoxxDashboardConfig', JSON.stringify(config));
+                Dashboard._internals._initializeDashboardContent();
+            },
+            
+            _localSaveConfig : function(){
+                localStorage.setItem('adoxxDashboardConfig', JSON.stringify(this._exportConfig()));
+            },
+            
+            _getSaveConfig : function(){
+                if(localStorage.adoxxDashboardConfig == null)
+                    throw 'dashboard configuration not present';
+                return JSON.parse(localStorage.adoxxDashboardConfig);
+            },
+            
+            _isLocallySaved : function(){
+                return localStorage.adoxxDashboardConfig != null;
+            },
+            
+            _localUnsaveConfig : function(){
+                localStorage.removeItem('adoxxDashboardConfig');
+            }
+        }
     }
     
 };
 
 
 var ModelManager = {
-
-    kpiModel : null,
-    
     storeKpiModel : function (model) {
         try{
-            this._processKpiModel(Utils.clone(model));
+            this._internals._processKpiModel(Utils.clone(model));
             localStorage.setItem('adoxxDashboardKpiModel', JSON.stringify(model));
         }catch(e){
             console.log('Error processing the model: ' + e);
-            $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Error processing the model: '+e+'</div>')
+            $('<div class="alert alert-danger fade in" role="alert"><button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>Error processing the model:'+e+'</div>')
                 .fadeTo(5000, 500)
-                .slideUp(500, function(){
+                /*.slideUp(500, function(){
                     $(this).remove();
-                })
+                })*/
                 .appendTo($('#dashboardDiv'));
         }
     },
@@ -982,13 +981,13 @@ var ModelManager = {
     },
                     
     getKpiModel : function(){
-        if(this.kpiModel == null){
+        if(this._internals._kpiModel == null){
             if(localStorage.adoxxDashboardKpiModel == null)
                 throw 'kpi model not present';
-            this.kpiModel = JSON.parse(localStorage.adoxxDashboardKpiModel);
-            this._processKpiModel(this.kpiModel);
+            this._internals._kpiModel = JSON.parse(localStorage.adoxxDashboardKpiModel);
+            this._internals._processKpiModel(this._internals._kpiModel);
         }
-        return this.kpiModel;
+        return this._internals._kpiModel;
     },
     
     isKpiModelOk : function(){
@@ -1143,134 +1142,6 @@ var ModelManager = {
         return ret;
     },
     
-    _processKpiModel : function(kpiModel){
-        
-        var _findDataSource = function(id, model){
-            if(id == null || id == '')
-                return null;
-            for(var i=0;i<model.dataSourceList.length;i++)
-                if(model.dataSourceList[i].id === id)
-                    return model.dataSourceList[i];
-            throw 'Impossible to find the datasource with id ' + id;
-        };
-        
-        var _findAlgorithm = function(id, model){
-            if(id == null || id == '')
-                return null;
-            for(var i=0;i<model.algorithmList.length;i++)
-                if(model.algorithmList[i].id === id)
-                    return model.algorithmList[i];
-            throw 'Impossible to find the algorithm with id ' + id;
-        };
-        
-        var _findKpi = function(id, model){
-            if(id == null || id == '')
-                return null;
-            for(var i=0;i<model.kpiList.length;i++)
-                if(model.kpiList[i].id === id)
-                    return model.kpiList[i];
-            throw 'Impossible to find the kpi with id ' + id;
-        };
-        
-        var _findGoal = function(id, model){
-            if(id == null || id == '')
-                return null;
-            for(var i=0;i<model.goalList.length;i++)
-                if(model.goalList[i].id === id)
-                    return model.goalList[i];
-            throw 'Impossible to find the goal with id ' + id;
-        };
-        
-        var _processKpi = function(kpiItem, modelItem){
-
-            kpiItem.getFieldInfos = function(fieldName){
-                for(var i=0;i<this.fields.length;i++)
-                    if(this.fields[i].name == fieldName)
-                        return this.fields[i];
-                throw 'Impossible to find a field with name: ' + fieldName + ' in the kpi ' + this.name;
-            };
-            
-            kpiItem.connectedAlgorithm = _findAlgorithm(kpiItem.connectedAlgorithmId, modelItem);
-            kpiItem.connectedDataSource = _findDataSource(kpiItem.connectedDataSourceId, modelItem);
-            
-            if(kpiItem.connectedDataSource == null && kpiItem.connectedAlgorithm == null)
-                throw 'The kpi with id ' + kpiItem.id + ' in the model ' + modelItem.id + ' can not have both DataSource and Algorithm null';
-            if(kpiItem.connectedDataSource != null && kpiItem.connectedDataSource.structuredOutput == false && kpiItem.connectedAlgorithm == null)
-                throw 'The kpi with id ' + kpiItem.id + ' in the model ' + modelItem.id + ' require an algorithm to process the unstructured output of the datasource';
-            
-            if(kpiItem.connectedAlgorithm != null)
-                if(kpiItem.connectedAlgorithm.code == '' || kpiItem.connectedAlgorithm.code.indexOf('return ') === -1)
-                    throw 'The algorithm with id ' + kpiItem.connectedAlgorithm.id + ' must provide a javascript code with a return statement in the end';
-            
-            kpiItem.requiredKpiList = [];
-            for(var i=0;i<kpiItem.requiredKpiIdList.length;i++)
-                kpiItem.requiredKpiList.push(_findKpi(kpiItem.requiredKpiIdList[i], modelItem));
-        };
-        
-        var _processGoal = function(goalItem, modelItem){
-
-            goalItem.connectedAlgorithm = _findAlgorithm(goalItem.connectedAlgorithmId, modelItem);
-            
-            if(goalItem.connectedAlgorithm == null)
-                throw 'The goal with id ' + goalItem.id + ' in the model ' + modelItem.id + ' can not have the Algorithm null';
-            if(goalItem.connectedAlgorithm.code == '' || goalItem.connectedAlgorithm.code.indexOf('return ') === -1)
-                throw 'The algorithm with id ' + goalItem.connectedAlgorithm.id + ' must provide a javascript code with a return statement in the end';
-            
-            goalItem.requiredKpiList = [];
-            for(var i=0;i<goalItem.requiredKpiIdList.length;i++)
-                goalItem.requiredKpiList.push(_findKpi(goalItem.requiredKpiIdList[i], modelItem));
-            goalItem.requiredGoalList = [];
-            for(var i=0;i<goalItem.requiredGoalIdList.length;i++)
-                goalItem.requiredGoalList.push(_findGoal(goalItem.requiredGoalIdList[i], modelItem));
-        };
-        
-        var _processModel = function(modelItem){
-            
-            modelItem.kpiList.forEach(function(kpiItem){
-                _processKpi(kpiItem, modelItem);
-            });
-            
-            modelItem.goalList.forEach(function(goalItem){
-                _processGoal(goalItem, modelItem);
-            });
-        };
-        
-        var _checkLoops = function(modelItem){
-            var _checkKpiRec = function(kpiItem, parentsArray){
-                for(var i=0;i<parentsArray.length;i++)
-                    if(parentsArray[i] === kpiItem.id)
-                        throw 'Error: in the model is present a dependency loop involving the kpi ' + kpiItem.id;
-                parentsArray.push(kpiItem.id);
-                kpiItem.requiredKpiList.forEach(function(item){
-                    _checkKpiRec(item, parentsArray);
-                });
-            };
-            var _checkGoalRec = function(goalItem, parentsArray){
-                for(var i=0;i<parentsArray.length;i++)
-                    if(parentsArray[i] === goalItem.id)
-                        throw 'Error: in the model is present a dependency loop involving the goal ' + goalItem.id;
-                parentsArray.push(goalItem.id);
-                goalItem.requiredKpiList.forEach(function(item){
-                    _checkKpiRec(item, []);
-                });
-                goalItem.requiredGoalList.forEach(function(item){
-                    _checkGoalRec(item, parentsArray);
-                });
-            };
-            modelItem.kpiList.forEach(function(kpiItem){
-                _checkKpiRec(kpiItem, []);
-            });
-            modelItem.goalList.forEach(function(goalItem){
-                _checkGoalRec(goalItem, []);
-            });
-        };
-        
-        kpiModel.modelList.forEach(function(modelItem){
-            _processModel(modelItem);
-            _checkLoops(modelItem);
-        }, this);
-    },
-
     getKpiInfo : function(modelId, kpiId){
         var model = null;
         this.getKpiModel().modelList.forEach(function(modelItem, modelIndex, modelArr){
@@ -1312,7 +1183,6 @@ var ModelManager = {
     },
     
     buildModelTreeStructure : function(){
-        
         var rootNode = {
             text : 'MODELs',
             levelId : '0',
@@ -1321,7 +1191,7 @@ var ModelManager = {
             selectedIcon : 'glyphicon glyphicon-folder-open',
             nodes: []
         };
-        ModelManager.getKpiModelList().forEach(function(modelInfo, modelIndex){
+        this.getKpiModelList().forEach(function(modelInfo, modelIndex){
             var modelNodeJson = {
                 text : modelInfo.name,
                 levelId : '0-'+modelIndex,
@@ -1378,31 +1248,160 @@ var ModelManager = {
                     delete jsonNode.nodes;
             };
             
-            ModelManager.getTopLevelElementList(modelInfo.id).forEach(function(item, itemIndex){
+            this.getTopLevelElementList(modelInfo.id).forEach(function(item, itemIndex){
                 if(item.isAGoal){
-                    var goalInfo = ModelManager.getGoalInfo(modelInfo.id, item.id);
+                    var goalInfo = this.getGoalInfo(modelInfo.id, item.id);
                     _constructJsonRec(goalNodeJson, goalInfo, true, itemIndex);
                 }else{
-                    var kpiInfo = ModelManager.getKpiInfo(modelInfo.id, item.id);
+                    var kpiInfo = this.getKpiInfo(modelInfo.id, item.id);
                     _constructJsonRec(kpiNodeJson, kpiInfo, false, itemIndex);
                 }
-            });
+            }, this);
             
             if(kpiNodeJson.nodes.length == 0)
                 delete kpiNodeJson.nodes;
             if(goalNodeJson.nodes.length == 0)
                 delete goalNodeJson.nodes;
 
-        });
+        }, this);
         
         return rootNode;
-    }
+    },
     
+    _internals : {
+        _kpiModel : null,
+        
+        _processKpiModel : function(kpiModel){
+            var _findDataSource = function(id, model){
+                if(id == null || id == '')
+                    return null;
+                for(var i=0;i<model.dataSourceList.length;i++)
+                    if(model.dataSourceList[i].id === id)
+                        return model.dataSourceList[i];
+                throw 'Impossible to find the datasource with id ' + id;
+            };
+            
+            var _findAlgorithm = function(id, model){
+                if(id == null || id == '')
+                    return null;
+                for(var i=0;i<model.algorithmList.length;i++)
+                    if(model.algorithmList[i].id === id)
+                        return model.algorithmList[i];
+                throw 'Impossible to find the algorithm with id ' + id;
+            };
+            
+            var _findKpi = function(id, model){
+                if(id == null || id == '')
+                    return null;
+                for(var i=0;i<model.kpiList.length;i++)
+                    if(model.kpiList[i].id === id)
+                        return model.kpiList[i];
+                throw 'Impossible to find the kpi with id ' + id;
+            };
+            
+            var _findGoal = function(id, model){
+                if(id == null || id == '')
+                    return null;
+                for(var i=0;i<model.goalList.length;i++)
+                    if(model.goalList[i].id === id)
+                        return model.goalList[i];
+                throw 'Impossible to find the goal with id ' + id;
+            };
+            
+            var _processKpi = function(kpiItem, modelItem){
+
+                kpiItem.getFieldInfos = function(fieldName){
+                    for(var i=0;i<this.fields.length;i++)
+                        if(this.fields[i].name == fieldName)
+                            return this.fields[i];
+                    throw 'Impossible to find a field with name: ' + fieldName + ' in the kpi ' + this.name;
+                };
+                
+                kpiItem.connectedAlgorithm = _findAlgorithm(kpiItem.connectedAlgorithmId, modelItem);
+                kpiItem.connectedDataSource = _findDataSource(kpiItem.connectedDataSourceId, modelItem);
+                
+                if(kpiItem.connectedDataSource == null && kpiItem.connectedAlgorithm == null)
+                    throw 'The kpi with id ' + kpiItem.id + ' in the model ' + modelItem.id + ' can not have both DataSource and Algorithm null';
+                if(kpiItem.connectedDataSource != null && kpiItem.connectedDataSource.structuredOutput == false && kpiItem.connectedAlgorithm == null)
+                    throw 'The kpi with id ' + kpiItem.id + ' in the model ' + modelItem.id + ' require an algorithm to process the unstructured output of the datasource';
+                
+                if(kpiItem.connectedAlgorithm != null)
+                    if(kpiItem.connectedAlgorithm.code == '' || kpiItem.connectedAlgorithm.code.indexOf('return ') === -1)
+                        throw 'The algorithm with id ' + kpiItem.connectedAlgorithm.id + ' must provide a javascript code with a return statement in the end';
+                
+                kpiItem.requiredKpiList = [];
+                for(var i=0;i<kpiItem.requiredKpiIdList.length;i++)
+                    kpiItem.requiredKpiList.push(_findKpi(kpiItem.requiredKpiIdList[i], modelItem));
+            };
+            
+            var _processGoal = function(goalItem, modelItem){
+
+                goalItem.connectedAlgorithm = _findAlgorithm(goalItem.connectedAlgorithmId, modelItem);
+                
+                if(goalItem.connectedAlgorithm == null)
+                    throw 'The goal with id ' + goalItem.id + ' in the model ' + modelItem.id + ' can not have the Algorithm null';
+                if(goalItem.connectedAlgorithm.code == '' || goalItem.connectedAlgorithm.code.indexOf('return ') === -1)
+                    throw 'The algorithm with id ' + goalItem.connectedAlgorithm.id + ' must provide a javascript code with a return statement in the end';
+                
+                goalItem.requiredKpiList = [];
+                for(var i=0;i<goalItem.requiredKpiIdList.length;i++)
+                    goalItem.requiredKpiList.push(_findKpi(goalItem.requiredKpiIdList[i], modelItem));
+                goalItem.requiredGoalList = [];
+                for(var i=0;i<goalItem.requiredGoalIdList.length;i++)
+                    goalItem.requiredGoalList.push(_findGoal(goalItem.requiredGoalIdList[i], modelItem));
+            };
+            
+            var _processModel = function(modelItem){
+                
+                modelItem.kpiList.forEach(function(kpiItem){
+                    _processKpi(kpiItem, modelItem);
+                });
+                
+                modelItem.goalList.forEach(function(goalItem){
+                    _processGoal(goalItem, modelItem);
+                });
+            };
+            
+            var _checkLoops = function(modelItem){
+                var _checkKpiRec = function(kpiItem, parentsArray){
+                    for(var i=0;i<parentsArray.length;i++)
+                        if(parentsArray[i] === kpiItem.id)
+                            throw 'Error: in the model is present a dependency loop involving the kpi ' + kpiItem.id;
+                    parentsArray.push(kpiItem.id);
+                    kpiItem.requiredKpiList.forEach(function(item){
+                        _checkKpiRec(item, parentsArray);
+                    });
+                };
+                var _checkGoalRec = function(goalItem, parentsArray){
+                    for(var i=0;i<parentsArray.length;i++)
+                        if(parentsArray[i] === goalItem.id)
+                            throw 'Error: in the model is present a dependency loop involving the goal ' + goalItem.id;
+                    parentsArray.push(goalItem.id);
+                    goalItem.requiredKpiList.forEach(function(item){
+                        _checkKpiRec(item, []);
+                    });
+                    goalItem.requiredGoalList.forEach(function(item){
+                        _checkGoalRec(item, parentsArray);
+                    });
+                };
+                modelItem.kpiList.forEach(function(kpiItem){
+                    _checkKpiRec(kpiItem, []);
+                });
+                modelItem.goalList.forEach(function(goalItem){
+                    _checkGoalRec(goalItem, []);
+                });
+            };
+            
+            kpiModel.modelList.forEach(function(modelItem){
+                _processModel(modelItem);
+                _checkLoops(modelItem);
+            });
+        }
+    }
 };
 
 
 var Utils = {
-    
     getURLParameter : function(sParam){
         var sPageURL = window.location.search.substring(1);
         var sURLVariables = sPageURL.split('&');
@@ -1511,10 +1510,7 @@ var Utils = {
             dataType : 'json',
             async: true,
             success : function(data, status){
-                if(data.error != null)
-                    failureCallback(data.error);
-                else
-                    successCallback(data);
+                successCallback(data);
             },
             error : function(request, status, error) {
                 failureCallback('Error contacting the datasourceWrapper: ' + status + ' ' + error + '\n\nmoduleName: ' + moduleName + '\nmoduleConfiguration: ' + JSON.stringify(moduleConfiguration));
@@ -1547,12 +1543,10 @@ var Utils = {
     clone : function(obj) {
         return JSON.parse(JSON.stringify(obj));
     }
-    
 };
 
 
 var Handlers = {
-    
     onKpiModelFileInput : function(e){
         if (!(window.File && window.FileReader && window.FileList && window.Blob)){
             alert('The File APIs are not fully supported in this browser.');
@@ -1573,21 +1567,19 @@ var Handlers = {
         };
         reader.readAsText(file);
     },
-    
-    reloadEnabled : true,
-    
+        
     onMessageReceived : function(event) {
         var origin = event.origin || event.originalEvent.origin;
         var dashboardConfig = event.data;
-        Dashboard.importConfig(dashboardConfig);
+        Dashboard._internals._importExportSystem._importConfig(dashboardConfig);
 
         $(document).trigger('updatedKpiModel');
     },
     
     onWidgetListInitialized : function(){
-        Dashboard._initializeWidgetPalette();
-        Dashboard._initializeDashboardGrid();
-        Dashboard._initializeDashboardContent();
+        Dashboard._internals._widgetSystem._initializeWidgetPalette();
+        Dashboard._internals._gridSystem._initializeDashboardGrid();
+        Dashboard._internals._initializeDashboardContent();
         $(document).trigger('updatedKpiModel');
     },
 
@@ -1600,8 +1592,8 @@ var Handlers = {
         
         Dashboard.datasourceUpdatingIntervallInSeconds = updateMinutesInterval * 60;
         
-        Dashboard._stopBackgroudDatasourceUpdate();
-        Dashboard._startBackgroudDatasourceUpdate(Handlers.onDatasourceCacheUpdate);
+        Dashboard._internals._datasourceCacheSystem._stopBackgroudDatasourceUpdate();
+        Dashboard._internals._datasourceCacheSystem._startBackgroudDatasourceUpdate(Handlers.onDatasourceCacheUpdate);
     },
     
     onWidgetFilterChange : function(){
@@ -1623,28 +1615,29 @@ var Handlers = {
     
     onConfigMenuShowed : function(){
         $('#modelStatusDiv').removeClass();
-        if(ModelManager.isKpiModelOk())
+        if(ModelManager.isKpiModelOk()){
             $('#modelStatusDiv')
                 .addClass('glyphicon glyphicon-ok color_green')
                 .attr('title', 'The KPI Model is present')
             ;
-        else
+        }else{
             $('#modelStatusDiv')
                 .addClass('glyphicon glyphicon-remove color_red')
                 .attr('title', 'The KPI Model is not present')
             ;
-        
+        }
         $('#dashboardStatusDiv').removeClass();
-        if(Dashboard.isLocallySaved())
+        if(Dashboard._internals._importExportSystem._isLocallySaved()){
             $('#dashboardStatusDiv')
                 .addClass('glyphicon glyphicon-ok color_green')
-                .attr('title', 'The Dashboard status has been saved internally on ' + Dashboard.getSaveConfig().exportDateTime)
+                .attr('title', 'The Dashboard status has been saved internally on ' + Dashboard._internals._importExportSystem._getSaveConfig().exportDateTime)
             ;
-        else
+        }else{
             $('#dashboardStatusDiv')
                 .addClass('glyphicon glyphicon-remove color_red')
                 .attr('title', 'The Dashboard status is not saved internally')
             ;
+        }
     },
     
     onRemoveModelClick : function(){
@@ -1653,7 +1646,7 @@ var Handlers = {
     },
     
     onExportDashboardClick : function(){
-        Utils.download(JSON.stringify(Dashboard.exportConfig()), 'dashboard_backup_' + new Date().toISOString() + '.json', 'application/json');
+        Utils.download(JSON.stringify(Dashboard._internals._importExportSystem._exportConfig()), 'dashboard_backup_' + new Date().toISOString() + '.json', 'application/json');
     },
     
     onDashboardInportFileInput : function(e){
@@ -1671,18 +1664,18 @@ var Handlers = {
             var content = e.target.result;
             if(!Utils.isValidJson(content))
                 throw 'The provided configuration is not in a valid Json format';
-            Dashboard.importConfig(JSON.parse(content));
+            Dashboard._internals._importExportSystem._importConfig(JSON.parse(content));
             $(document).trigger('updatedKpiModel');
         };
         reader.readAsText(file);
     },
     
     onSaveDashboardClick : function(){
-        Dashboard.localSaveConfig();
+        Dashboard._internals._importExportSystem._localSaveConfig();
     },
     
     onUnsaveDashboardClick : function(){
-      Dashboard.localUnsaveConfig();
+      Dashboard._internals._importExportSystem._localUnsaveConfig();
     },
     
     onFilterByValuesChange : function(){
@@ -1703,7 +1696,7 @@ var Handlers = {
         
         $('#dashboardDiv').trigger(event);
         
-        Dashboard._filterWidgetInstancesByValue(showSuccessGoal, showFailureGoal, showUnknownGoal, minKpiVal, sameKpiVal, maxKpiVal);
+        Dashboard._internals._filterSystem._filterWidgetInstancesByValue(showSuccessGoal, showFailureGoal, showUnknownGoal, minKpiVal, sameKpiVal, maxKpiVal);
     },
     
     onFilterBySelectionClick : function(modelId, isGoal, objectId){
@@ -1715,11 +1708,11 @@ var Handlers = {
         
         $('#dashboardDiv').trigger(event);
         
-        Dashboard._filterWidgetInstancesBySelection(modelId, isGoal, objectId);
+        Dashboard._internals._filterSystem._filterWidgetInstancesBySelection(modelId, isGoal, objectId);
     },
     
     onUpdatedKpiModel : function(){
-        Dashboard._initFilterMenu();
+        Dashboard._internals._filterSystem._initFilterMenu();
     },
     
     onDocumentReady : function(){
@@ -1745,9 +1738,8 @@ var Handlers = {
         $('#updMinTxt').val((Dashboard.datasourceUpdatingIntervallInSeconds/60));
         
         Dashboard.setLang(Utils.getURLParameter('lang'));
-        Dashboard._initializeWidgetList(Handlers.onWidgetListInitialized);
+        Dashboard._internals._widgetSystem._initializeWidgetList(Handlers.onWidgetListInitialized);
         
-        Dashboard._startBackgroudDatasourceUpdate();
+        Dashboard._internals._datasourceCacheSystem._startBackgroudDatasourceUpdate();
     }
-
 };

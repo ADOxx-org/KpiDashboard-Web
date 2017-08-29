@@ -64,14 +64,14 @@ public class DSRESTService implements DSModuleI{
     @Override
     public JsonObject obtainData(JsonObject configuration) throws Exception {
         String endpoint = configuration.getJsonObject("endpoint").getString("value");
+        if(endpoint.isEmpty()) throw new Exception("REST endpoint not provided");
         String method = configuration.getJsonObject("method").getString("value");
-        String requestContentType = (configuration.getJsonObject("requestContentType")!=null)?configuration.getJsonObject("requestContentType").getString("value"):null;
-        String querystring = (configuration.getJsonObject("querystring")!=null)?configuration.getJsonObject("querystring").getString("value"):null;
-        String postData = (configuration.getJsonObject("postData")!=null)?configuration.getJsonObject("postData").getString("value"):null;
-        String additionalHeaders = (configuration.getJsonObject("additionalHeaders")!=null)?configuration.getJsonObject("additionalHeaders").getString("value"):null;
-        
-        if(method == null || (!method.equals("POST") && !method.equals("GET")) )
+        if(method == null || method.isEmpty() || (!method.equals("POST") && !method.equals("GET")) )
             throw new Exception("Invalid method provided: " + method);
+        String requestContentType = (configuration.getJsonObject("requestContentType")!=null)?(configuration.getJsonObject("requestContentType").getString("value").isEmpty()?null:configuration.getJsonObject("requestContentType").getString("value")):null;
+        String querystring = (configuration.getJsonObject("querystring")!=null)?(configuration.getJsonObject("querystring").getString("value").isEmpty()?null:configuration.getJsonObject("querystring").getString("value")):null;
+        String postData = (configuration.getJsonObject("postData")!=null)?(configuration.getJsonObject("postData").getString("value").isEmpty()?null:configuration.getJsonObject("postData").getString("value")):null;
+        String additionalHeaders = (configuration.getJsonObject("additionalHeaders")!=null)?(configuration.getJsonObject("additionalHeaders").getString("value").isEmpty()?null:configuration.getJsonObject("additionalHeaders").getString("value")):null;
         
         endpoint = (querystring!=null)?endpoint+"?"+querystring:endpoint;
         
@@ -102,5 +102,23 @@ public class DSRESTService implements DSModuleI{
     public boolean isOutputStructured() {
         return false;
     }
-
+    
+    /*
+    public static void main(String[] argv){
+        try{
+            DSModuleI module = new DSRESTService();
+            JsonObject config = Json.createObjectBuilder()
+                    .add("endpoint", Json.createObjectBuilder().add("value", "http://134.60.64.222:8080/evaluation/rest/ca/evaluateKPI/bwcon"))
+                    //.add("endpoint", Json.createObjectBuilder().add("value", "http://134.60.64.222:8080/evaluation/rest/ca/kpiQuery/bwcon"))
+                    .add("method", Json.createObjectBuilder().add("value", "POST"))
+                    .add("requestContentType", Json.createObjectBuilder().add("value", "application/x-www-form-urlencoded"))
+                    .add("querystring", Json.createObjectBuilder().add("value", "kpiName=SendInvoice0_MeanCycleTimeKPI&kpiPeriod=P1M"))
+                    .add("postData", Json.createObjectBuilder().add("value", ""))
+                    .add("additionalHeaders", Json.createObjectBuilder().add("value", "Accept: application/json\nAuthorization: Basic TO_PROVIDE"))
+                    .build();
+            System.out.println(config.toString());
+            System.out.println(module.obtainData(config));
+        }catch(Exception ex){ex.printStackTrace();}
+    }
+    */
 }

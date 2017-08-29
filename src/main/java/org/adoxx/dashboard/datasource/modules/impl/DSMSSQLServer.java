@@ -68,11 +68,21 @@ public class DSMSSQLServer implements DSModuleI{
     @Override
     public JsonObject obtainData(JsonObject configuration) throws Exception {
         String host = configuration.getJsonObject("host").getString("value");
-        Integer port = Integer.parseInt(configuration.getJsonObject("port").getString("value"));
+        if(host.isEmpty()) throw new Exception("MSSQLServer host not provided");
+        Integer port = -1;
+        try {
+            port = Integer.parseInt(configuration.getJsonObject("port").getString("value"));
+        }catch(Exception ex) {
+            throw new Exception("The MSSQLServer port number is incorrect: '"+configuration.getJsonObject("port").getString("value")+"'");
+        }
         String database = configuration.getJsonObject("database").getString("value");
+        if(database.isEmpty()) throw new Exception("MSSQLServer database name not provided");
         String username = configuration.getJsonObject("username").getString("value");
+        if(username.isEmpty()) throw new Exception("MSSQLServer username not provided");
         String password = configuration.getJsonObject("password").getString("value");
+        if(password.isEmpty()) throw new Exception("MSSQLServer password not provided");
         String query = configuration.getJsonObject("query").getString("value");
+        if(query.isEmpty()) throw new Exception("MSSQLServer query not provided");
         
         if(!query.toLowerCase().startsWith("select"))
             throw new Exception("Only SELECT queries allowed");
